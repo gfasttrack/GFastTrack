@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SafeTrack">
+<meta name="theme-color" content="#0c1c2e">
+<title>SafeTrack</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(function () {
+  if (window.innerWidth >= 700) return;
+  var locked = 0;
+  var lockedWidth = window.innerWidth;
+  function apply(h) {
+    locked = h;
+    document.documentElement.style.setProperty("--app-h", h + "px");
+  }
+  function isStandalone() {
+    return window.navigator.standalone === true ||
+      (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+  }
+  function fullHeight() {
+    var vv = window.visualViewport ? window.visualViewport.height : 0;
+    var inner = window.innerHeight || 0;
+    if (isStandalone()) document.documentElement.classList.add("standalone");
+    return Math.round(Math.max(inner, vv || 0));
+  }
+  function grow() {
+    var h = fullHeight();
+    if (h > locked) apply(h);
+  }
+  function pin() {
+    if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+  }
+  apply(fullHeight());
+  window.addEventListener("load", grow);
+  window.addEventListener("resize", grow);
+  setTimeout(grow, 300);
+  window.addEventListener("orientationchange", function () {
+    setTimeout(function () {
+      if (Math.abs(window.innerWidth - lockedWidth) > 40) {
+        lockedWidth = window.innerWidth;
+        apply(fullHeight());
+      }
+      pin();
+    }, 300);
+  });
+  window.addEventListener("scroll", pin, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("scroll", pin);
+    window.visualViewport.addEventListener("resize", pin);
+  }
+  document.addEventListener("focusin", function (e) {
+    var field = e.target;
+    if (!field || !field.closest) return;
+    var scroller = field.closest(".auth-body");
+    if (!scroller) return;
+    setTimeout(function () {
+      pin();
+      var limit = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      var rect = field.getBoundingClientRect();
+      if (rect.bottom > limit - 16) scroller.scrollTop += rect.bottom - (limit - 28);
+    }, 60);
+  });
+  document.addEventListener("focusout", function () {
+    setTimeout(pin, 0);
+    setTimeout(pin, 120);
+  });
+})();
+</script>
+<style>
+:root{
+  --navy:#0c1c2e; --navy2:#132a41; --card:#16324a; --card2:#1b3b57;
+  --blue:#2f7bf6; --blue-d:#1f5fd6; --red:#e5484d; --green:#2ecc71;
+  --text:#f2f6fa; --muted:#8ba3bd; --line:#22415e;
+  --bg-light:#eef1f5;
+}
+*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}
+html,body{height:100%;overflow:hidden;}
+body{
+  background:var(--navy);
+  display:flex;align-items:stretch;justify-content:center;
+  min-height:100vh;min-height:100dvh;padding:0;
+}
+.phone{
+  width:100%;max-width:480px;height:100vh;height:100dvh;background:var(--navy);
+  overflow:hidden;position:relative;
+}
+@media (max-width:699px){
+  html,body{
+    position:fixed;top:0;left:0;width:100%;
+    height:var(--app-h,100%);max-height:var(--app-h,100%);
+    min-height:0;overflow:hidden;overscroll-behavior:none;
+  }
+  .phone{height:100%;max-height:100%;}
+  .field input,.field .country-btn{font-size:16px;}
+}
+@media (min-width:700px){
+  body{
+    background:linear-gradient(160deg,#dfe6ee,#c7d1de);
+    align-items:center;padding:24px;
+  }
+  .phone{
+    width:390px;max-width:390px;height:min(844px,100dvh);border-radius:28px;
+    box-shadow:0 20px 50px rgba(0,0,0,.22);
+  }
+}
+.notch{display:none;}
+.screen{
+  position:absolute;inset:0;display:none;flex-direction:column;
+  background:var(--navy);color:var(--text);
+  padding-top:env(safe-area-inset-top);
+  z-index:1;
+}
+.screen.active{display:flex;}
+.status{display:none;}
+
+/* ---- Splash ---- */
+#screen-splash{background:linear-gradient(180deg,#0c1c2e 0%,#0c1c2e 55%,#0e2135 100%);}
+.splash-body{flex:1;display:flex;flex-direction:column;align-items:center;padding:30px 26px 26px;overflow-y:auto;}
+.logo-pin{
+  width:78px;height:78px;border-radius:50%;background:var(--blue);
+  display:flex;align-items:center;justify-content:center;margin:18px 0 14px;
+  box-shadow:0 0 0 10px rgba(47,123,246,.15);
+}
+.logo-pin span{font-size:34px;}
+.brand{font-size:26px;font-weight:700;}
+.tagline{color:var(--muted);font-size:13px;margin-top:4px;margin-bottom:18px;}
+.hero-img{
+  width:100%;height:150px;border-radius:16px;margin-bottom:22px;
+  background:linear-gradient(180deg,#3a4d63,#141f2c);position:relative;overflow:hidden;
+}
+.hero-img::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 30% 20%,rgba(255,190,120,.25),transparent 60%);}
+.feat{display:flex;gap:14px;align-items:flex-start;width:100%;margin-bottom:16px;}
+.feat .ic{
+  width:38px;height:38px;border-radius:10px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:17px;
+}
+.feat h4{font-size:14.5px;margin-bottom:2px;}
+.feat p{font-size:12px;color:var(--muted);}
+.btn{
+  width:100%;padding:15px;border:none;border-radius:14px;font-size:15px;font-weight:600;
+  cursor:pointer;color:#fff;
+}
+.btn-blue{background:linear-gradient(135deg,#3b82f6,#2158c9);box-shadow:0 6px 16px rgba(47,123,246,.35);}
+.btn-red{background:linear-gradient(135deg,#f0585c,#c8262b);box-shadow:0 6px 16px rgba(229,72,77,.3);}
+.logo-pin{box-shadow:0 0 0 10px rgba(47,123,246,.15),0 10px 24px rgba(47,123,246,.4);}
+.user-card,.stat-row{box-shadow:0 4px 14px rgba(0,0,0,.18);}
+.btn-outline{background:transparent;border:1.5px solid var(--line);color:var(--text);}
+.btn-ghost{background:var(--card);color:var(--text);}
+.mt-auto{margin-top:auto;}
+
+/* ---- Auth ---- */
+.auth-body{flex:1;padding:10px 26px 30px;display:flex;flex-direction:column;overflow-y:auto;}
+.back{font-size:22px;padding:6px 0 10px;cursor:pointer;color:var(--text);}
+.h1{font-size:24px;font-weight:700;margin-bottom:4px;}
+.sub{color:var(--muted);font-size:13px;margin-bottom:24px;}
+.field{
+  background:var(--card);border:1px solid var(--line);border-radius:13px;
+  padding:12px 14px;display:flex;align-items:center;gap:10px;margin-bottom:14px;
+}
+.field .fl{flex:1;}
+.field label{display:block;font-size:10px;color:var(--muted);margin-bottom:2px;}
+.field input{background:none;border:none;color:var(--text);font-size:14px;width:100%;outline:none;color-scheme:dark;}
+.pass-eye{background:none;border:none;color:var(--muted);padding:2px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.pass-eye.on{color:var(--blue);}
+.pass-eye [hidden]{display:none;}
+.field input[type="date"]{cursor:pointer;}
+.field .country-btn{background:none;border:none;color:var(--text);font-size:14px;width:100%;outline:none;cursor:pointer;text-align:left;padding:0;font-family:inherit;}
+.field .country-btn.placeholder{color:var(--muted);}
+.country-caret{color:var(--muted);font-size:12px;flex-shrink:0;}
+.country-menu{position:absolute;z-index:40;display:none;flex-direction:column;background:var(--navy);border:1px solid var(--line);border-radius:12px;overflow-y:auto;box-shadow:0 10px 28px rgba(0,0,0,.45);}
+.country-menu.open{display:flex;}
+.country-menu button{background:var(--navy);color:var(--text);border:none;text-align:left;padding:11px 14px;font-size:14px;cursor:pointer;font-family:inherit;flex-shrink:0;}
+.country-menu button:hover,.country-menu button.on{background:var(--blue);color:#fff;}
+.link-blue{color:var(--blue);font-weight:600;cursor:pointer;}
+.center-note{margin-top:auto;text-align:center;color:var(--muted);font-size:12px;padding-top:20px;}
+.foot-row{text-align:center;font-size:13px;color:var(--muted);margin-top:14px;}
+
+/* ---- Connecting ---- */
+#screen-connect .auth-body{align-items:center;text-align:center;padding-top:30px;}
+.radar{
+  width:230px;height:230px;border-radius:50%;
+  background:radial-gradient(circle,rgba(47,123,246,.35),rgba(47,123,246,.05) 70%);
+  display:flex;align-items:center;justify-content:center;margin:30px 0 34px;position:relative;
+}
+.radar::before,.radar::after{content:"";position:absolute;border:1.5px solid rgba(47,123,246,.4);border-radius:50%;}
+.radar::before{width:100%;height:100%;animation:pulse 2s infinite;}
+.radar::after{width:70%;height:70%;animation:pulse 2s infinite .5s;}
+@keyframes pulse{0%{transform:scale(.7);opacity:1}100%{transform:scale(1.15);opacity:0}}
+.chip{width:70px;height:70px;border-radius:16px;background:#0e1f30;display:flex;align-items:center;justify-content:center;font-size:30px;z-index:2;}
+.check-list{width:100%;text-align:left;display:flex;flex-direction:column;gap:14px;margin-bottom:30px;}
+.check-item{display:flex;align-items:center;gap:10px;font-size:14px;}
+.dot{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}
+.dot.done{background:var(--green);}
+.dot.spin{border:2px solid var(--line);border-top-color:var(--blue);animation:spin 1s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ---- App shell (home/tracking/family/settings/device) ---- */
+.app-header{
+  display:flex;align-items:center;gap:12px;padding:6px 20px 14px;flex-shrink:0;
+}
+.app-header h2{font-size:18px;font-weight:700;flex:1;}
+.avatar{width:34px;height:34px;border-radius:50%;background:#3a5875;display:flex;align-items:center;justify-content:center;font-size:15px;}
+.hicon{font-size:20px;cursor:pointer;}
+.user-card{
+  margin:0 20px 14px;background:var(--card);border-radius:16px;padding:14px;
+  display:flex;align-items:center;gap:12px;
+}
+.avatar-lg{width:44px;height:44px;border-radius:50%;background:#3a5875;display:flex;align-items:center;justify-content:center;font-size:19px;}
+.user-card .name{font-weight:700;font-size:14.5px;}
+.status-pill{font-size:12px;color:var(--green);display:flex;align-items:center;gap:4px;}
+.status-pill.moving{color:#f5b942;}
+.dev-id{font-size:11px;color:var(--muted);margin-top:1px;}
+
+.map-wrap{margin:0 20px 14px;border-radius:18px;overflow:hidden;position:relative;height:250px;flex-shrink:0;}
+#screen-home .map-wrap{height:min(336px,42vh);}
+.map-bg{
+  position:absolute;inset:0;
+  background:
+    radial-gradient(circle at 75% 20%,#cfe8d2 0%,transparent 40%),
+    radial-gradient(circle at 15% 85%,#bcdff0 0%,transparent 45%),
+    #e7ebe2;
+}
+.map-tag{position:absolute;top:12px;left:12px;background:var(--blue);color:#fff;font-size:11px;font-weight:600;padding:5px 10px;border-radius:8px;z-index:3;display:flex;align-items:center;gap:5px;}
+.map-loc-card{
+  position:absolute;bottom:0;left:0;right:0;background:rgba(255,255,255,.94);color:#16324a;
+  padding:12px 14px;font-size:12.5px;
+}
+.map-loc-card b{display:block;font-size:13.5px;}
+.map-loc-card .sub2{color:#6b7c8c;font-size:11px;margin-top:1px;}
+.zoom-ctrl{position:absolute;right:10px;bottom:78px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,.15);z-index:5;}
+.zoom-ctrl div{width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;color:#333;border-bottom:1px solid #eee;}
+.ico{display:inline-flex;flex-shrink:0;vertical-align:-0.15em;}
+.ico svg{width:100%;height:100%;display:block;}
+.icons .ico{vertical-align:-0.2em;margin-left:2px;}
+.leaflet-map{position:absolute;inset:0;z-index:1;background:#e7ebe2;}
+.leaflet-container{font-family:inherit;}
+.map-tag,.map-loc-card{z-index:4;}
+
+.quick-actions{display:flex;justify-content:space-between;padding:0 20px 10px;flex-shrink:0;}
+.qa{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:pointer;}
+.qa .ic{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:19px;}
+.list{flex:1;overflow-y:auto;padding:0 20px 8px;position:relative;z-index:1;}
+#screen-home .list,
+#screen-settings .list,
+#screen-family .list,
+#screen-device-list .list{padding-bottom:calc(88px + env(safe-area-inset-bottom, 0px));}
+.row{
+  display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--line);cursor:pointer;
+}
+.row .ic{width:36px;height:36px;border-radius:10px;background:var(--card);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.row .t1{font-weight:600;font-size:14px;}
+.row .t2{font-size:11.5px;color:var(--muted);}
+.row .chev{margin-left:auto;color:var(--muted);}
+.section-title{padding:6px 20px;font-size:12px;color:var(--muted);}
+.bignum{padding:14px 20px 0;}
+.bignum h1{font-size:22px;font-weight:700;}
+.bignum p{color:var(--muted);font-size:12.5px;margin-top:2px;}
+
+.bottom-nav{
+  position:absolute;left:16px;right:16px;bottom:0;
+  z-index:40;margin:0;
+  display:flex;justify-content:space-around;align-items:stretch;
+  padding:6px;gap:4px;
+  border-radius:26px;
+  border:1px solid rgba(160,198,255,.28);
+  background:rgba(16,46,86,.94);
+  -webkit-backdrop-filter:blur(18px);
+  backdrop-filter:blur(18px);
+  box-shadow:0 10px 28px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.12);
+}
+.nav-item,.nav-item .ic{position:relative;z-index:1;}
+#screen-family > div:has(> .btn),
+#screen-device > div:has(> .btn){margin-bottom:calc(92px + env(safe-area-inset-bottom));}
+.nav-item{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  min-height:52px;padding:6px 2px;border-radius:20px;
+  font-size:10.5px;font-weight:600;color:rgba(242,246,250,.72);cursor:pointer;
+}
+.nav-item.on{
+  color:#fff;
+  background:linear-gradient(180deg,rgba(79,148,255,.95),rgba(31,95,214,.92));
+  box-shadow:0 6px 14px rgba(47,123,246,.35);
+}
+.nav-item .ic{font-size:18px;}
+
+.stat-row{
+  margin:0 20px 12px;background:var(--card);border-radius:14px;padding:12px 14px;
+  display:flex;justify-content:space-between;align-items:center;font-size:13px;
+}
+.stat-row .lbl{display:flex;align-items:center;gap:8px;color:var(--muted);}
+.stat-row .val{font-weight:600;}
+.dir-now{
+  margin:0 20px 8px;background:var(--card);border-radius:16px;padding:16px 16px 14px;
+  border:1px solid rgba(47,123,246,.55);
+}
+.dir-now .kicker{font-size:11px;color:var(--blue);font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;}
+.dir-now h3{font-size:20px;font-weight:700;margin-bottom:4px;}
+.dir-now p{color:var(--muted);font-size:13px;line-height:1.4;}
+.row.dir-on{background:rgba(47,123,246,.12);margin:0 -10px;padding:14px 10px;border-radius:12px;border-bottom-color:transparent;}
+.row.dir-on .t1{font-size:15px;}
+.row.dir-done .t1{color:var(--muted);font-weight:500;}
+
+/* ---- Live audio ---- */
+.audio-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 30px;}
+.mic-ring{
+  width:190px;height:190px;border-radius:50%;background:rgba(46,204,113,.14);
+  display:flex;align-items:center;justify-content:center;margin-bottom:26px;position:relative;
+}
+.mic-ring::before{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid rgba(46,204,113,.4);animation:pulse 1.8s infinite;}
+.mic-core{width:120px;height:120px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;font-size:44px;}
+.listening{font-size:16px;font-weight:600;margin-bottom:20px;}
+.wave{display:flex;align-items:flex-end;gap:4px;height:34px;margin-bottom:36px;}
+.wave span{width:4px;background:var(--green);border-radius:2px;animation:wv 1s ease-in-out infinite;}
+@keyframes wv{0%,100%{height:8px}50%{height:32px}}
+.audio-level-box{width:100%;background:var(--card);border-radius:14px;padding:14px;margin-top:auto;}
+.level-bar{height:8px;background:var(--line);border-radius:4px;margin-top:8px;overflow:hidden;}
+.level-fill{height:100%;width:78%;background:var(--green);}
+
+/* ---- SOS ---- */
+#screen-sos{background:linear-gradient(180deg,#c0292d,#8f1c20);}
+.sos-body{flex:1;display:flex;flex-direction:column;align-items:center;padding:24px 22px;overflow-y:auto;}
+.sos-icon{width:76px;height:76px;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:34px;margin:12px 0 16px;}
+.sos-body h1{font-size:22px;font-weight:700;margin-bottom:6px;}
+.sos-body p{font-size:13px;opacity:.9;margin-bottom:20px;text-align:center;}
+.sos-card{width:100%;background:#fff;color:#16324a;border-radius:16px;padding:16px;margin-bottom:16px;}
+.sos-card .top{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+.sos-card .loc{display:flex;gap:8px;font-size:12.5px;color:#3a4d63;margin-bottom:14px;}
+.sos-actions{display:flex;flex-direction:column;gap:10px;}
+.sos-actions .row2{display:flex;gap:10px;}
+.sos-actions .row2 .btn{flex:1;}
+
+/* icon bg colors */
+.bg-blue{background:rgba(47,123,246,.18);color:var(--blue);}
+.bg-red{background:rgba(229,72,77,.18);color:var(--red);}
+.bg-muted{background:rgba(139,163,189,.18);color:var(--muted);}
+.bg-green{background:rgba(46,204,113,.18);color:var(--green);}
+</style>
+</head>
+<body>
+<div class="phone"><div class="notch"></div>
+<div id="country-menu" class="country-menu"></div>
+
+  <!-- SPLASH -->
+  <div class="screen active" id="screen-splash">
+    <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 20h2v-4H2v4zm5 0h2v-8H7v8zm5 0h2v-12h-2v12zm5 0h2V6h-2v14z"/></svg><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg><svg viewBox="0 0 24 24" width="20" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="17" height="12" rx="2.5"/><rect x="21" y="10" width="2" height="4" fill="currentColor" stroke="none"/><rect x="4" y="8" width="12" height="8" rx="1" fill="currentColor" stroke="none"/></svg></span></div>
+    <div class="splash-body">
+      <div class="logo-pin"><span><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12.5A7 7 0 0 0 5 9.5C5 14.42 12 22 12 22z"/><circle cx="12" cy="9.5" r="2.5"/></svg></i></span></div>
+      <div class="brand">SafeTrack</div>
+      <div class="tagline">Stay Connected. Stay Safe.</div>
+      <div class="hero-img"></div>
+      <div class="feat"><div class="ic bg-blue"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12.5A7 7 0 0 0 5 9.5C5 14.42 12 22 12 22z"/><circle cx="12" cy="9.5" r="2.5"/></svg></i></div><div><h4>Real-time Location</h4><p>Know where they are</p></div></div>
+      <div class="feat"><div class="ic bg-blue"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4M8 22h8"/></svg></i></div><div><h4>Live Audio</h4><p>Hear what's happening</p></div></div>
+      <div class="feat"><div class="ic bg-red"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 2.3 18a1.8 1.8 0 0 0 1.5 2.7h16.4a1.8 1.8 0 0 0 1.5-2.7l-8-14.1a1.8 1.8 0 0 0-3.1 0Z"/><path d="M12 9.5v4.2M12 17.3h.01"/></svg></i></div><div><h4>Emergency Alerts</h4><p>Get help when needed</p></div></div>
+      <button class="btn btn-blue mt-auto" onclick="go('signin')">Get Started</button>
+    </div>
+  </div>
+
+  <!-- SIGN IN -->
+  <div class="screen" id="screen-signin">
+    <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 20h2v-4H2v4zm5 0h2v-8H7v8zm5 0h2v-12h-2v12zm5 0h2V6h-2v14z"/></svg><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg><svg viewBox="0 0 24 24" width="20" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="17" height="12" rx="2.5"/><rect x="21" y="10" width="2" height="4" fill="currentColor" stroke="none"/><rect x="4" y="8" width="12" height="8" rx="1" fill="currentColor" stroke="none"/></svg></span></div>
+    <div class="auth-body">
+      <div class="back" onclick="go('splash')">‹</div>
+      <div class="h1">Welcome Back</div>
+      <div class="sub" id="signin-note">Sign in with your username and password.</div>
+      <div class="field"><span><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c0-4 3.3-6.5 7.5-6.5s7.5 2.5 7.5 6.5"/></svg></i></span><div class="fl"><label>Username</label><input id="input-user" placeholder="e.g. ama" autocomplete="username"></div></div>
+      <div class="field"><span><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></i></span><div class="fl"><label>Password</label><input id="input-pass" type="password" placeholder="Your password" autocomplete="current-password"></div><button type="button" class="pass-eye" aria-label="Show password" onmousedown="event.preventDefault()" onclick="togglePassword(this)"><i class="ico eye-open" style="width:20px;height:20px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></i><i class="ico eye-shut" hidden style="width:20px;height:20px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"/><path d="M9.9 5.1A10.8 10.8 0 0 1 12 5c6.5 0 10 7 10 7a18.5 18.5 0 0 1-3.2 4.2"/><path d="M6.1 6.1C3.5 7.8 2 12 2 12a18.6 18.6 0 0 0 6.2 6.3"/></svg></i></button></div>
+      <button type="button" class="btn btn-blue" onclick="signIn()">Sign In</button>
+      <div class="foot-row">Don't have an account? <span class="link-blue" onclick="go('register')">Create Account</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:auto;padding-top:26px;">
+        <div style="width:52px;height:52px;border-radius:50%;background:rgba(47,123,246,.15);display:flex;align-items:center;justify-content:center;">
+          <i class="ico" style="width:28px;height:28px;color:var(--blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v6c0 4.6 3.2 8 7.5 9 4.3-1 7.5-4.4 7.5-9V6L12 3Z"/><path d="m9 12 2 2 4-4.2"/></svg></i>
+        </div>
+        <div style="color:var(--muted);font-size:12.5px;font-weight:600;">Your Safety, Our Priority</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CREATE ACCOUNT -->
+  <div class="screen" id="screen-register">
+    <div class="status"><span>9:41</span><span class="icons"></span></div>
+    <div class="auth-body">
+      <div class="back" onclick="go('signin')">‹</div>
+      <div class="h1">Create Account</div>
+      <div class="sub" id="register-note">Your details are the profile. Add every tracker that belongs with this account.</div>
+      <div class="field"><div class="fl"><label>First name</label><input id="reg-first" placeholder="e.g. Ama"></div></div>
+      <div class="field"><div class="fl"><label>Surname</label><input id="reg-surname" placeholder="e.g. Mensah"></div></div>
+      <div class="field"><div class="fl"><label>Username</label><input id="reg-user" placeholder="e.g. ama" autocomplete="username"></div></div>
+      <div class="field"><div class="fl"><label>Password</label><input id="reg-pass" type="password" placeholder="Choose a password" autocomplete="new-password"></div><button type="button" class="pass-eye" aria-label="Show password" onmousedown="event.preventDefault()" onclick="togglePassword(this)"><i class="ico eye-open" style="width:20px;height:20px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></i><i class="ico eye-shut" hidden style="width:20px;height:20px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"/><path d="M9.9 5.1A10.8 10.8 0 0 1 12 5c6.5 0 10 7 10 7a18.5 18.5 0 0 1-3.2 4.2"/><path d="M6.1 6.1C3.5 7.8 2 12 2 12a18.6 18.6 0 0 0 6.2 6.3"/></svg></i></button></div>
+      <div class="field"><div class="fl"><label>Date of birth</label><input id="reg-birth" type="date" onclick="openDatePicker(this)"></div></div>
+      <div class="field"><div class="fl"><label>Address</label><input id="reg-address" placeholder="e.g. 12 Oxford Street, Accra"></div></div>
+      <div class="field" onclick="openCountryMenu(this.querySelector('.country-btn'), event)"><div class="fl"><label>Country</label><button type="button" class="country-btn placeholder" data-for="reg-country">Select country</button><input type="hidden" id="reg-country" value=""></div><span class="country-caret">▾</span></div>
+      <div class="section-title" style="padding-left:0;">Devices</div>
+      <div id="register-devices">
+        <div class="reg-device">
+          <div class="field"><div class="fl"><label>Device name</label><input class="reg-devname" placeholder="Who carries this tracker"></div></div>
+          <div class="field"><div class="fl"><label>Device ID</label><input class="reg-devid" placeholder="e.g. 12345678"></div>
+            <span onclick="go('qr')" style="width:34px;height:34px;border-radius:10px;background:var(--card2);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">
+              <i class="ico" style="width:18px;height:18px;color:var(--blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20v.01"/></svg></i>
+            </span>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-outline" style="margin-bottom:14px;" onclick="addRegisterDevice()">＋ Add device</button>
+      <button type="button" class="btn btn-blue" onclick="createAccount()">Create Account</button>
+      <div class="foot-row">Already have an account? <span class="link-blue" onclick="go('signin')">Sign In</span></div>
+    </div>
+  </div>
+
+  <!-- CONNECTING -->
+  <div class="screen" id="screen-connect">
+    <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 20h2v-4H2v4zm5 0h2v-8H7v8zm5 0h2v-12h-2v12zm5 0h2V6h-2v14z"/></svg><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg><svg viewBox="0 0 24 24" width="20" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="17" height="12" rx="2.5"/><rect x="21" y="10" width="2" height="4" fill="currentColor" stroke="none"/><rect x="4" y="8" width="12" height="8" rx="1" fill="currentColor" stroke="none"/></svg></span></div>
+    <div class="auth-body">
+      <div class="h1" style="margin-top:8px;">Connecting to Device…</div>
+      <div class="sub">Please wait while we connect to your GPS device.</div>
+      <div class="radar"><div class="chip"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></i></div></div>
+      <div class="check-list">
+        <div class="check-item"><div class="dot done"><i class="ico" style="width:12px;height:12px;"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7.5"/></svg></i></div>Verifying Device ID</div>
+        <div class="check-item"><div class="dot done"><i class="ico" style="width:12px;height:12px;"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7.5"/></svg></i></div>Connecting to ESP32</div>
+        <div class="check-item"><div class="dot spin"></div>Getting location…</div>
+      </div>
+      <button class="btn btn-outline" onclick="go('signin')">Cancel</button>
+    </div>
+  </div>
+
+  <!-- QR SCANNER -->
+  <div class="screen" id="screen-qr">
+    <div class="status" style="color:#fff;"><span>9:41</span><span class="icons" style="color:#fff;"></span></div>
+    <div style="flex:1;background:#05070a;display:flex;flex-direction:column;align-items:center;padding:20px 26px 30px;color:#fff;">
+      <div style="width:100%;display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+        <span onclick="go('register')" style="font-size:22px;cursor:pointer;">‹</span>
+        <h2 style="font-size:17px;font-weight:700;">Scan Device QR Code</h2>
+      </div>
+      <p style="color:var(--muted);font-size:12.5px;text-align:center;margin:10px 0 26px;">Point your camera at the QR code printed on your ESP32 device box to auto-fill its Device ID.</p>
+      <div style="width:230px;height:230px;position:relative;margin-bottom:30px;">
+        <div style="position:absolute;inset:0;border-radius:20px;background:linear-gradient(180deg,#1a2734,#0d151d);"></div>
+        <div style="position:absolute;top:0;left:0;width:34px;height:34px;border-top:4px solid var(--blue);border-left:4px solid var(--blue);border-radius:10px 0 0 0;"></div>
+        <div style="position:absolute;top:0;right:0;width:34px;height:34px;border-top:4px solid var(--blue);border-right:4px solid var(--blue);border-radius:0 10px 0 0;"></div>
+        <div style="position:absolute;bottom:0;left:0;width:34px;height:34px;border-bottom:4px solid var(--blue);border-left:4px solid var(--blue);border-radius:0 0 0 10px;"></div>
+        <div style="position:absolute;bottom:0;right:0;width:34px;height:34px;border-bottom:4px solid var(--blue);border-right:4px solid var(--blue);border-radius:0 0 10px 0;"></div>
+        <div id="scan-line" style="position:absolute;left:14px;right:14px;height:2px;background:var(--blue);box-shadow:0 0 10px 2px rgba(47,123,246,.8);top:14px;animation:scanmove 2s ease-in-out infinite;"></div>
+      </div>
+      <button class="btn btn-blue" onclick="mockScan()">Simulate Scan (Demo)</button>
+      <p style="color:var(--muted);font-size:11px;text-align:center;margin-top:14px;">Real camera scanning connects once this runs inside your app shell with camera permission.</p>
+    </div>
+  </div>
+<style>@keyframes scanmove{0%,100%{top:14px}50%{top:200px}}</style>
+
+
+  <div class="screen" id="screen-home">
+    <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 20h2v-4H2v4zm5 0h2v-8H7v8zm5 0h2v-12h-2v12zm5 0h2V6h-2v14z"/></svg><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg><svg viewBox="0 0 24 24" width="20" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="17" height="12" rx="2.5"/><rect x="21" y="10" width="2" height="4" fill="currentColor" stroke="none"/><rect x="4" y="8" width="12" height="8" rx="1" fill="currentColor" stroke="none"/></svg></span></div>
+    <div class="app-header"><span class="hicon" onclick="toggleMenu(true)"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></i></span><h2>SafeTrack</h2><div class="avatar" onclick="go('account')" style="cursor:pointer;overflow:hidden;"><img class="dyn-avatar" src="https://randomuser.me/api/portraits/men/32.jpg" alt="" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:this.parentElement.className,textContent:'JD',style:this.parentElement.getAttribute('style')||''}))" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div></div>
+    <div class="map-wrap">
+      <div id="map-home" class="leaflet-map"></div>
+      <div class="map-tag" style="pointer-events:none;"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><path d="M8.5 15.5a5 5 0 0 1 0-7M5.8 18.2a9 9 0 0 1 0-12.4M15.5 8.5a5 5 0 0 1 0 7M18.2 5.8a9 9 0 0 1 0 12.4"/></svg></i> Live Location</div>
+      <div class="map-loc-card" style="cursor:pointer;" onclick="openMyMap()"><b><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12.5A7 7 0 0 0 5 9.5C5 14.42 12 22 12 22z"/><circle cx="12" cy="9.5" r="2.5"/></svg></i> Current Location</b><span id="home-address">123 Main Street, Accra, Ghana</span><div class="sub2">Last updated: <span id="home-updated">2 min ago</span></div></div>
+    </div>
+    <div class="quick-actions">
+      <div class="qa" onclick="go('audio')"><div class="ic bg-blue"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4M8 22h8"/></svg></i></div>Live Audio</div>
+      <div class="qa" onclick="go('sos')"><div class="ic bg-red"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 2.3 18a1.8 1.8 0 0 0 1.5 2.7h16.4a1.8 1.8 0 0 0 1.5-2.7l-8-14.1a1.8 1.8 0 0 0-3.1 0Z"/><path d="M12 9.5v4.2M12 17.3h.01"/></svg></i></div>SOS</div>
+      <div class="qa" onclick="go('history')"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></i></div>History</div>
+      <div class="qa" onclick="go('settings')"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1h-.2a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.6v-.2a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg></i></div>Settings</div>
+    </div>
+    <div class="section-title">Family Devices</div>
+    <div class="list" id="home-family" data-family-list></div>
+    <div class="bottom-nav">
+      <div class="nav-item on"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></i></span>Home</div>
+      <div class="nav-item" onclick="openMyMap()"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg></i></span>Map</div>
+      <div class="nav-item" onclick="go('family')"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.4"/><path d="M15.5 14.2c2.7.4 4.5 2.4 4.5 5.3"/></svg></i></span>Devices</div>
+      <div class="nav-item" onclick="go('settings')"><span class="ic">•••</span>More</div>
+    </div>
+  </div>
+
+  <!-- LIVE TRACKING -->
+  <div class="screen" id="screen-tracking">
+    <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 20h2v-4H2v4zm5 0h2v-8H7v8zm5 0h2v-12h-2v12zm5 0h2V6h-2v14z"/></svg><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg><svg viewBox="0 0 24 24" width="20" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="17" height="12" rx="2.5"/><rect x="21" y="10" width="2" height="4" fill="currentColor" stroke="none"/><rect x="4" y="8" width="12" height="8" rx="1" fill="currentColor" stroke="none"/></svg></span></div>
+    <div class="app-header"><span class="back" onclick="go('home')" style="padding:0;">‹</span><h2>Live Tracking</h2></div>
+    <div class="user-card"><div class="avatar-lg"><img id="track-photo" src="https://randomuser.me/api/portraits/men/32.jpg" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"><span id="track-initial" style="display:none;"></span></div><div><div class="name" id="track-name">John Doe</div><div class="status-pill moving" id="track-motion">● Moving • 5 km/h</div></div></div>
+    <div class="map-wrap" style="height:290px;">
+      <div id="map-tracking" class="leaflet-map"></div>
+    </div>
+    <div class="stat-row"><div class="lbl"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12.5A7 7 0 0 0 5 9.5C5 14.42 12 22 12 22z"/><circle cx="12" cy="9.5" r="2.5"/></svg></i> <span id="track-place">Destination — Work Place</span></div></div>
+    <div class="section-title" style="margin-top:-10px;">ETA 12 min (3.2 km)</div>
+    <div style="padding:0 20px;"><button class="btn btn-blue" onclick="openDirections()"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m14.5 9.5-2 5-5 2 2-5 5-2Z"/></svg></i> Directions</button></div>
+    <div style="flex:1"></div>
+    <div class="bottom-nav">
+      <div class="nav-item" onclick="go('home')"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></i></span>Home</div>
+      <div class="nav-item on"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg></i></span>Map</div>
+      <div class="nav-item" onclick="go('family')"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.4"/><path d="M15.5 14.2c2.7.4 4.5 2.4 4.5 5.3"/></svg></i></span>Devices</div>
+      <div class="nav-item" onclick="go('settings')"><span class="ic">•••</span>More</div>
+    </div>
+  </div>
+
+  <!-- DIRECTIONS -->
+  <div class="screen" id="screen-directions">
+    <div class="status"><span>9:41</span><span class="icons"></span></div>
+    <div class="app-header"><span class="back" onclick="go('tracking')" style="padding:0;">‹</span><h2>Directions</h2></div>
+    <div class="user-card"><div class="avatar-lg"><img id="dir-photo" src="https://randomuser.me/api/portraits/men/32.jpg" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"><span id="dir-initial" style="display:none;"></span></div><div><div class="name" id="dir-name">John Doe</div><div class="status-pill moving" id="dir-motion">● Walking • 5 km/h</div></div></div>
+    <div class="map-wrap" style="height:180px;">
+      <div id="map-directions" class="leaflet-map"></div>
+    </div>
+    <div class="dir-now">
+      <div class="kicker" id="dir-kicker">Walking</div>
+      <h3 id="dir-title">Directions</h3>
+      <p id="dir-detail"></p>
+    </div>
+    <div class="section-title">Along the way</div>
+    <div class="list" id="directions-list"></div>
+  </div>
+
+  <!-- LIVE AUDIO -->
+  <div class="screen" id="screen-audio">
+    <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 20h2v-4H2v4zm5 0h2v-8H7v8zm5 0h2v-12h-2v12zm5 0h2V6h-2v14z"/></svg><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg><svg viewBox="0 0 24 24" width="20" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="17" height="12" rx="2.5"/><rect x="21" y="10" width="2" height="4" fill="currentColor" stroke="none"/><rect x="4" y="8" width="12" height="8" rx="1" fill="currentColor" stroke="none"/></svg></span></div>
+    <div class="app-header"><span class="back" onclick="go('home')" style="padding:0;">‹</span><h2>Live Audio</h2></div>
+    <div class="audio-body">
+      <div class="mic-ring"><div class="mic-core"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4M8 22h8"/></svg></i></div></div>
+      <div class="listening">Listening…</div>
+      <div class="wave">
+        <span style="animation-delay:.0s"></span><span style="animation-delay:.1s"></span><span style="animation-delay:.2s"></span>
+        <span style="animation-delay:.3s"></span><span style="animation-delay:.15s"></span><span style="animation-delay:.05s"></span>
+        <span style="animation-delay:.25s"></span><span style="animation-delay:.35s"></span><span style="animation-delay:.1s"></span>
+      </div>
+      <button class="btn btn-red" onclick="go('home')"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></i> Stop</button>
+      <p style="text-align:center;color:var(--muted);font-size:12px;margin-top:14px;">You can hear the surroundings from the device's microphone.</p>
+      <div class="audio-level-box">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);"><span>Audio Level</span><span style="color:var(--green);">Good</span></div>
+        <div class="level-bar"><div class="level-fill"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SOS -->
+  <div class="screen" id="screen-sos">
+    <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 20h2v-4H2v4zm5 0h2v-8H7v8zm5 0h2v-12h-2v12zm5 0h2V6h-2v14z"/></svg><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg><svg viewBox="0 0 24 24" width="20" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="17" height="12" rx="2.5"/><rect x="21" y="10" width="2" height="4" fill="currentColor" stroke="none"/><rect x="4" y="8" width="12" height="8" rx="1" fill="currentColor" stroke="none"/></svg></span></div>
+    <div class="sos-body">
+      <div class="sos-icon"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 2.3 18a1.8 1.8 0 0 0 1.5 2.7h16.4a1.8 1.8 0 0 0 1.5-2.7l-8-14.1a1.8 1.8 0 0 0-3.1 0Z"/><path d="M12 9.5v4.2M12 17.3h.01"/></svg></i></div>
+      <h1>SOS Alert!</h1>
+      <p>Your device has detected a possible emergency.</p>
+      <div class="sos-card">
+        <div class="top"><div class="avatar-lg" style="background:#dbe6f0;"><img id="sos-photo" src="https://randomuser.me/api/portraits/men/32.jpg" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"><span id="sos-initial" style="display:none;"></span></div><div><b class="dyn-device-name">John Doe</b><div class="sub2" style="color:#6b7c8c;font-size:11.5px;"><span class="dyn-devid-label">Device ID: 12345678</span></div></div></div>
+        <div class="loc" id="sos-loc"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12.5A7 7 0 0 0 5 9.5C5 14.42 12 22 12 22z"/><circle cx="12" cy="9.5" r="2.5"/></svg></i> <span id="sos-loc-text">123 Main Street, Accra, Ghana · 2 min ago</span></div>
+        <div class="sos-actions">
+          <button class="btn btn-red" onclick="go('audio')"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19.5 6a9 9 0 0 1 0 12"/></svg></i> Live Audio</button>
+          <div class="row2">
+            <button class="btn btn-outline" style="color:#16324a;border-color:#dbe1e7;" onclick="openMyMap()"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12.5A7 7 0 0 0 5 9.5C5 14.42 12 22 12 22z"/><circle cx="12" cy="9.5" r="2.5"/></svg></i> View Location</button>
+            <button class="btn" style="background:var(--green);" ><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 4h3.4l1.6 4.2-2 1.6a12 12 0 0 0 6.7 6.7l1.6-2 4.2 1.6v3.4c0 1-.8 1.8-1.8 1.7A17.5 17.5 0 0 1 3 5.8 1.8 1.8 0 0 1 4.5 4Z"/></svg></i> Call</button>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-ghost" style="background:rgba(255,255,255,.15);color:#fff;" onclick="dismissSos()">Dismiss</button>
+    </div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="screen" id="screen-settings">
+    <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 20h2v-4H2v4zm5 0h2v-8H7v8zm5 0h2v-12h-2v12zm5 0h2V6h-2v14z"/></svg><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg><svg viewBox="0 0 24 24" width="20" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="17" height="12" rx="2.5"/><rect x="21" y="10" width="2" height="4" fill="currentColor" stroke="none"/><rect x="4" y="8" width="12" height="8" rx="1" fill="currentColor" stroke="none"/></svg></span></div>
+    <div class="app-header"><span class="back" onclick="go('home')" style="padding:0;">‹</span><h2>Settings</h2></div>
+    <div class="user-card"><div class="avatar-lg"><img class="dyn-avatar" src="https://randomuser.me/api/portraits/men/32.jpg" alt="" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:this.parentElement.className,textContent:'JD',style:this.parentElement.getAttribute('style')||''}))" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div><div><div class="name dyn-name">John Doe</div></div></div>
+    <div class="list">
+      <div class="row" onclick="go('device-list')"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1h-.2a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.6v-.2a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg></i></div><div><div class="t1">Device Settings</div><div class="t2">Choose a device</div></div><span class="chev">›</span></div>
+      <div class="row" onclick="openMyMap()"><div class="ic bg-blue"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12.5A7 7 0 0 0 5 9.5C5 14.42 12 22 12 22z"/><circle cx="12" cy="9.5" r="2.5"/></svg></i></div><div><div class="t1">Location Update</div><div class="t2">Update interval (1 min)</div></div><span class="chev">›</span></div>
+      <div class="row" onclick="go('geofence')"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 4.9L3 17.5V21h3.5l6.3-6.3a4 4 0 0 0 4.9-5.4l-2.7 2.7-2.1-2.1 2.8-2.6Z"/></svg></i></div><div><div class="t1">Geofence</div><div class="t2">Set safe zones</div></div><span class="chev">›</span></div>
+      <div class="row" onclick="go('sos')"><div class="ic bg-red"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v6c0 4.6 3.2 8 7.5 9 4.3-1 7.5-4.4 7.5-9V6L12 3Z"/></svg></i></div><div><div class="t1">Safety Alerts</div><div class="t2">SOS, fall detection</div></div><span class="chev">›</span></div>
+      <div class="row" onclick="go('account')"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c0-4 3.3-6.5 7.5-6.5s7.5 2.5 7.5 6.5"/></svg></i></div><div><div class="t1">Account</div><div class="t2">Manage your profile</div></div><span class="chev">›</span></div>
+      <div class="row" onclick="go('help')"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.3a2.8 2.8 0 1 1 3.8 2.6c-.8.4-1.1.9-1.1 1.6v.3"/><path d="M12 17.2h.01"/></svg></i></div><div><div class="t1">Help &amp; Support</div><div class="t2">FAQs, contact us</div></div><span class="chev">›</span></div>
+    </div>
+    <div class="bottom-nav">
+      <div class="nav-item" onclick="go('home')"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></i></span>Home</div>
+      <div class="nav-item" onclick="openMyMap()"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg></i></span>Map</div>
+      <div class="nav-item" onclick="go('family')"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.4"/><path d="M15.5 14.2c2.7.4 4.5 2.4 4.5 5.3"/></svg></i></span>Devices</div>
+      <div class="nav-item on"><span class="ic">•••</span>More</div>
+    </div>
+  </div>
+
+  <!-- FAMILY -->
+  <div class="screen" id="screen-family">
+    <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 20h2v-4H2v4zm5 0h2v-8H7v8zm5 0h2v-12h-2v12zm5 0h2V6h-2v14z"/></svg><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg><svg viewBox="0 0 24 24" width="20" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="17" height="12" rx="2.5"/><rect x="21" y="10" width="2" height="4" fill="currentColor" stroke="none"/><rect x="4" y="8" width="12" height="8" rx="1" fill="currentColor" stroke="none"/></svg></span></div>
+    <div class="app-header"><span class="back" onclick="go('home')" style="padding:0;">‹</span><h2>Family Tracking</h2></div>
+    <div class="bignum"><h1>Family Devices</h1><p>Every tracker on this account.</p></div>
+    <div class="list" id="family-list" data-family-list>
+      <div class="row"><div class="ic bg-green" style="border-radius:50%;overflow:hidden;"><img class="dyn-avatar" src="https://randomuser.me/api/portraits/men/32.jpg" alt="" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:this.parentElement.className,textContent:'JD',style:this.parentElement.getAttribute('style')||''}))" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div><div><div class="t1">John Doe</div><div class="t2">Online • 5 km/h</div></div></div>
+      <div class="row"><div class="ic bg-green" style="border-radius:50%;overflow:hidden;"><img src="https://randomuser.me/api/portraits/women/44.jpg" alt="" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:this.parentElement.className,textContent:'SD',style:this.parentElement.getAttribute('style')||''}))" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div><div><div class="t1">Sarah Doe</div><div class="t2">Online • 2 km/h</div></div></div>
+      <div class="row"><div class="ic bg-muted" style="border-radius:50%;overflow:hidden;"><img src="https://randomuser.me/api/portraits/men/76.jpg" alt="" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:this.parentElement.className,textContent:'JmD',style:this.parentElement.getAttribute('style')||''}))" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div><div><div class="t1">James Doe</div><div class="t2">Offline • 3 h ago</div></div></div>
+      <div class="row"><div class="ic bg-muted" style="border-radius:50%;overflow:hidden;"><img src="https://randomuser.me/api/portraits/women/65.jpg" alt="" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:this.parentElement.className,textContent:'MD',style:this.parentElement.getAttribute('style')||''}))" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div><div><div class="t1">Mary Doe</div><div class="t2">Offline • 5 h ago</div></div></div>
+    </div>
+    <div style="padding:0 20px 12px;"><button class="btn btn-blue" onclick="openAddFamily()">＋ Add Family Member</button></div>
+    <div class="bottom-nav">
+      <div class="nav-item" onclick="go('home')"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></i></span>Home</div>
+      <div class="nav-item" onclick="openMyMap()"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg></i></span>Map</div>
+      <div class="nav-item on"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.4"/><path d="M15.5 14.2c2.7.4 4.5 2.4 4.5 5.3"/></svg></i></span>Devices</div>
+      <div class="nav-item" onclick="go('settings')"><span class="ic">•••</span>More</div>
+    </div>
+  </div>
+
+  <!-- ADD FAMILY MEMBER -->
+  <div class="screen" id="screen-add-family">
+    <div class="status"><span>9:41</span><span class="icons"></span></div>
+    <div class="app-header"><span class="back" onclick="go('family')" style="padding:0;">‹</span><h2>Add Member</h2></div>
+    <div class="auth-body" style="padding-top:8px;">
+      <div class="h1">Add Family Member</div>
+      <div class="sub" id="family-note">The device name is who carries this tracker.</div>
+      <div class="field"><div class="fl"><label>Device name</label><input id="family-name" placeholder="e.g. Sarah Doe"></div></div>
+      <div class="field"><div class="fl"><label>Device ID</label><input id="family-devid" placeholder="e.g. 12345678"></div></div>
+      <button class="btn btn-blue" onclick="submitFamilyMember()">Add to Family</button>
+    </div>
+  </div>
+
+  <!-- FAMILY MEMBER -->
+  <div class="screen" id="screen-member">
+    <div class="status"><span>9:41</span><span class="icons"></span></div>
+    <div class="app-header"><span class="back" onclick="go('family')" style="padding:0;">‹</span><h2>Family Member</h2></div>
+    <div class="user-card">
+      <div class="avatar-lg" id="member-avatar" style="overflow:hidden;"><img id="member-photo" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"><span id="member-initial" style="display:none;"></span></div>
+      <div><div class="name" id="member-name">Family Member</div><div class="status-pill" id="member-status">● Offline</div></div>
+    </div>
+    <div class="stat-row"><span class="lbl">Device ID</span><span class="val" id="member-device">Not linked</span></div>
+    <div class="stat-row"><span class="lbl">Status</span><span class="val" id="member-detail">Offline</span></div>
+    <div style="flex:1"></div>
+  </div>
+
+  <!-- DEVICE SETTINGS LIST -->
+  <div class="screen" id="screen-device-list">
+    <div class="status"><span>9:41</span><span class="icons"></span></div>
+    <div class="app-header"><span class="back" onclick="go('settings')" style="padding:0;">‹</span><h2>Device Settings</h2></div>
+    <div class="bignum"><h1>Devices</h1><p>Select a tracker to see who uses it.</p></div>
+    <div class="list" id="device-list"></div>
+    <div class="bottom-nav">
+      <div class="nav-item" onclick="go('home')"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></i></span>Home</div>
+      <div class="nav-item" onclick="openMyMap()"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg></i></span>Map</div>
+      <div class="nav-item" onclick="go('family')"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.4"/><path d="M15.5 14.2c2.7.4 4.5 2.4 4.5 5.3"/></svg></i></span>Devices</div>
+      <div class="nav-item on"><span class="ic">•••</span>More</div>
+    </div>
+  </div>
+
+  <!-- DEVICE DETAILS -->
+  <div class="screen" id="screen-device">
+    <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 20h2v-4H2v4zm5 0h2v-8H7v8zm5 0h2v-12h-2v12zm5 0h2V6h-2v14z"/></svg><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg><svg viewBox="0 0 24 24" width="20" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="17" height="12" rx="2.5"/><rect x="21" y="10" width="2" height="4" fill="currentColor" stroke="none"/><rect x="4" y="8" width="12" height="8" rx="1" fill="currentColor" stroke="none"/></svg></span></div>
+    <div class="app-header"><span class="back" onclick="go('device-list')" style="padding:0;">‹</span><h2>Device Details</h2></div>
+    <div style="flex:1;overflow-y:auto;">
+    <div class="user-card">
+      <div class="avatar-lg" style="background:#0e1f30;"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></i></div>
+      <div><div class="name" id="device-person">John Doe</div><div class="status-pill" id="device-status">● Connected</div><div class="dev-id" id="device-id-label">Device ID: 12345678</div>
+      <div class="dev-id">Battery: <span id="dev-battery">85%</span> <span id="dev-battery-bar" style="display:inline-block;width:40px;height:7px;background:var(--green);border-radius:3px;vertical-align:middle;margin-left:4px;"></span></div></div>
+    </div>
+    <div style="margin:0 20px 12px;background:#fff;border-radius:14px;padding:16px;display:flex;flex-direction:column;align-items:center;gap:8px;">
+      <div id="dev-qr"></div>
+      <div style="color:#16324a;font-size:12px;font-weight:600;">Device QR code</div>
+    </div>
+    <div class="stat-row"><span class="lbl"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 20h2v-4H2v4zm5 0h2v-8H7v8zm5 0h2v-12h-2v12zm5 0h2V6h-2v14z"/></svg></i> Signal Strength</span><span class="val" id="dev-signal">Good</span></div>
+    <div class="stat-row"><span class="lbl"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><path d="M8.5 15.5a5 5 0 0 1 0-7M5.8 18.2a9 9 0 0 1 0-12.4M15.5 8.5a5 5 0 0 1 0 7M18.2 5.8a9 9 0 0 1 0 12.4"/></svg></i> GPS Status</span><span class="val" id="dev-gps" style="color:var(--green);">Active</span></div>
+    <div class="stat-row"><span class="lbl"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></i> Last Update</span><span class="val" id="dev-updated">2 min ago</span></div>
+    <div class="stat-row"><span class="lbl"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14.5V5a2 2 0 1 0-4 0v9.5a4 4 0 1 0 4 0Z"/></svg></i> Temperature</span><span class="val" id="dev-temp">32°C</span></div>
+    <div class="stat-row"><span class="lbl"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8Z"/><path d="M12 8v5M12 16.2h.01"/></svg></i> SOS Status</span><span class="val" id="dev-sos">Inactive</span></div>
+    </div>
+    <div style="padding:0 20px 10px;display:flex;gap:10px;">
+      <button class="btn btn-blue" style="flex:1;" onclick="playBeep()"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19.5 6a9 9 0 0 1 0 12"/></svg></i> Play Beep</button>
+      <button class="btn btn-red" style="flex:1;" onclick="disconnectDevice()"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v5M15 2v5M7 8h10v4a5 5 0 0 1-10 0V8Z"/><path d="M12 17v5"/></svg></i> Disconnect</button>
+    </div>
+    <div class="bottom-nav">
+      <div class="nav-item" onclick="go('home')"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></i></span>Home</div>
+      <div class="nav-item" onclick="openMyMap()"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg></i></span>Map</div>
+      <div class="nav-item" onclick="go('family')"><span class="ic"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.4"/><path d="M15.5 14.2c2.7.4 4.5 2.4 4.5 5.3"/></svg></i></span>Devices</div>
+      <div class="nav-item on"><span class="ic">•••</span>More</div>
+    </div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="screen" id="screen-history">
+    <div class="status"><span>9:41</span><span class="icons"></span></div>
+    <div class="app-header"><span class="back" onclick="go('home')" style="padding:0;">‹</span><h2>Location History</h2></div>
+    <div class="list" id="history-list">
+      <div class="section-title" style="padding-left:0;">Today</div>
+      <div class="row"><div class="ic bg-blue"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12.5A7 7 0 0 0 5 9.5C5 14.42 12 22 12 22z"/><circle cx="12" cy="9.5" r="2.5"/></svg></i></div><div><div class="t1">Arrived at Work Place</div><div class="t2">9:52 AM · 123 Main Street, Accra</div></div></div>
+      <div class="row"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></i></div><div><div class="t1">Left Home</div><div class="t2">9:38 AM · 123 Main Street, Accra</div></div></div>
+      <div class="row"><div class="ic bg-red"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 2.3 18a1.8 1.8 0 0 0 1.5 2.7h16.4a1.8 1.8 0 0 0 1.5-2.7l-8-14.1a1.8 1.8 0 0 0-3.1 0Z"/><path d="M12 9.5v4.2M12 17.3h.01"/></svg></i></div><div><div class="t1">SOS Alert triggered</div><div class="t2">8:15 AM · Near Ring Road</div></div></div>
+      <div class="section-title" style="padding-left:0;">Yesterday</div>
+      <div class="row"><div class="ic bg-blue"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12.5A7 7 0 0 0 5 9.5C5 14.42 12 22 12 22z"/><circle cx="12" cy="9.5" r="2.5"/></svg></i></div><div><div class="t1">Arrived Home</div><div class="t2">6:40 PM · 123 Main Street, Accra</div></div></div>
+      <div class="row"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></i></div><div><div class="t1">Left Work Place</div><div class="t2">5:58 PM · 123 Main Street, Accra</div></div></div>
+      <div class="row"><div class="ic bg-blue"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12.5A7 7 0 0 0 5 9.5C5 14.42 12 22 12 22z"/><circle cx="12" cy="9.5" r="2.5"/></svg></i></div><div><div class="t1">Arrived at Work Place</div><div class="t2">9:05 AM · 123 Main Street, Accra</div></div></div>
+    </div>
+  </div>
+
+  <!-- ACCOUNT -->
+  <div class="screen" id="screen-account">
+    <div class="status"><span>9:41</span><span class="icons"></span></div>
+    <div class="app-header"><span class="back" onclick="go('settings')" style="padding:0;">‹</span><h2>Account</h2></div>
+    <div class="auth-body" style="padding-top:6px;">
+      <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:22px;">
+        <div class="avatar-lg" style="width:74px;height:74px;margin-bottom:10px;"><img class="dyn-avatar" src="https://randomuser.me/api/portraits/men/32.jpg" alt="" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:this.parentElement.className,textContent:'JD',style:this.parentElement.getAttribute('style')||''}))" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
+        <span class="link-blue" style="font-size:12.5px;" onclick="pickPhoto()">Change Photo</span>
+        <input id="photo-input" type="file" accept="image/*" style="display:none" onchange="uploadPhoto(this)">
+      </div>
+      <div class="field"><div class="fl"><label>First name</label><input id="acct-first" value="John"></div></div>
+      <div class="field"><div class="fl"><label>Surname</label><input id="acct-surname" value="Doe"></div></div>
+      <div class="field"><div class="fl"><label>Username</label><input id="acct-user" value="johndoe" disabled></div></div>
+      <div class="field"><div class="fl"><label>Date of birth</label><input id="acct-birth" type="date" onclick="openDatePicker(this)"></div></div>
+      <div class="field"><div class="fl"><label>Address</label><input id="acct-address" value="123 Main Street, Accra"></div></div>
+      <div class="field" onclick="openCountryMenu(this.querySelector('.country-btn'), event)"><div class="fl"><label>Country</label><button type="button" class="country-btn placeholder" data-for="acct-country">Select country</button><input type="hidden" id="acct-country" value=""></div><span class="country-caret">▾</span></div>
+      <div class="field"><div class="fl"><label>Email</label><input id="acct-email" value="john.doe@example.com"></div></div>
+      <div class="field"><div class="fl"><label>Phone</label><input id="acct-phone" value="+233 24 000 0000"></div></div>
+      <button class="btn btn-blue" onclick="saveAccount()">Save Changes</button>
+      <button class="btn btn-outline" style="margin-top:10px;" onclick="signOut()">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- HELP & SUPPORT -->
+  <div class="screen" id="screen-help">
+    <div class="status"><span>9:41</span><span class="icons"></span></div>
+    <div class="app-header"><span class="back" onclick="go('settings')" style="padding:0;">‹</span><h2>Help &amp; Support</h2></div>
+    <div class="list">
+      <div class="section-title" style="padding-left:0;">Frequently Asked Questions</div>
+      <div class="row"><div><div class="t1">How do I connect my ESP32 device?</div><div class="t2">Add its name and Device ID when you create an account. You can add more than one.</div></div></div>
+      <div class="row"><div><div class="t1">Why is my location not updating?</div><div class="t2">Check the device's signal and battery under Device Details.</div></div></div>
+      <div class="row"><div><div class="t1">How does the SOS alert work?</div><div class="t2">The device detects a possible emergency and instantly notifies your family.</div></div></div>
+      <div class="row"><div><div class="t1">Can I track more than one device?</div><div class="t2">Yes — add additional family members from the Family Tracking page.</div></div></div>
+    </div>
+    <div style="padding:6px 20px 20px;display:flex;gap:10px;">
+      <button class="btn btn-blue"><i class="ico" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 4h3.4l1.6 4.2-2 1.6a12 12 0 0 0 6.7 6.7l1.6-2 4.2 1.6v3.4c0 1-.8 1.8-1.8 1.7A17.5 17.5 0 0 1 3 5.8 1.8 1.8 0 0 1 4.5 4Z"/></svg></i>Contact Support</button>
+    </div>
+  </div>
+
+  <!-- GEOFENCE -->
+  <div class="screen" id="screen-geofence">
+    <div class="status"><span>9:41</span><span class="icons"></span></div>
+    <div class="app-header"><span class="back" onclick="go('settings')" style="padding:0;">‹</span><h2>Geofence</h2></div>
+    <div class="map-wrap" style="height:210px;">
+      <div id="map-geofence" class="leaflet-map"></div>
+    </div>
+    <div class="section-title" style="padding-left:20px;">Safe Zones</div>
+    <div class="list" id="geofence-list">
+      <div class="row"><div class="ic bg-blue"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 4.9L3 17.5V21h3.5l6.3-6.3a4 4 0 0 0 4.9-5.4l-2.7 2.7-2.1-2.1 2.8-2.6Z"/></svg></i></div><div><div class="t1">Home</div><div class="t2">123 Main Street, Accra · 200m radius</div></div><span class="chev">›</span></div>
+      <div class="row"><div class="ic bg-blue"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 4.9L3 17.5V21h3.5l6.3-6.3a4 4 0 0 0 4.9-5.4l-2.7 2.7-2.1-2.1 2.8-2.6Z"/></svg></i></div><div><div class="t1">Work Place</div><div class="t2">Ring Road, Accra · 150m radius</div></div><span class="chev">›</span></div>
+      <div class="row"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 4.9L3 17.5V21h3.5l6.3-6.3a4 4 0 0 0 4.9-5.4l-2.7 2.7-2.1-2.1 2.8-2.6Z"/></svg></i></div><div><div class="t1">School</div><div class="t2">Not yet configured</div></div><span class="chev">›</span></div>
+    </div>
+    <div style="padding:6px 20px 20px;">
+      <button class="btn btn-blue" onclick="addSafeZone()">＋ Add Safe Zone</button>
+    </div>
+  </div>
+
+  <!-- SIDE MENU -->
+  <div id="menu-backdrop" onclick="toggleMenu(false)" style="position:absolute;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .25s;z-index:90;"></div>
+  <div id="menu-panel" style="position:absolute;top:0;bottom:0;left:0;width:270px;background:var(--navy2);transform:translateX(-100%);transition:transform .25s;z-index:91;display:flex;flex-direction:column;padding:26px 0 20px;">
+    <div style="padding:0 22px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line);margin-bottom:10px;">
+      <div class="avatar-lg"><img class="dyn-avatar" src="https://randomuser.me/api/portraits/men/32.jpg" alt="" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:this.parentElement.className,textContent:'JD',style:this.parentElement.getAttribute('style')||''}))" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
+      <div><div class="name dyn-name" style="font-weight:700;">John Doe</div></div>
+    </div>
+    <div class="row" style="padding-left:22px;" onclick="menuGo('home')"><div class="ic bg-blue"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></i></div><div class="t1">Home</div></div>
+    <div class="row" style="padding-left:22px;" onclick="menuGo('family')"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.4"/><path d="M15.5 14.2c2.7.4 4.5 2.4 4.5 5.3"/></svg></i></div><div class="t1">Family Devices</div></div>
+    <div class="row" style="padding-left:22px;" onclick="menuGo('history')"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></i></div><div class="t1">History</div></div>
+    <div class="row" style="padding-left:22px;" onclick="menuGo('account')"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c0-4 3.3-6.5 7.5-6.5s7.5 2.5 7.5 6.5"/></svg></i></div><div class="t1">Account</div></div>
+    <div class="row" style="padding-left:22px;" onclick="menuGo('settings')"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1h-.2a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.6v-.2a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg></i></div><div class="t1">Settings</div></div>
+    <div class="row" style="padding-left:22px;" onclick="menuGo('help')"><div class="ic bg-muted"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.3a2.8 2.8 0 1 1 3.8 2.6c-.8.4-1.1.9-1.1 1.6v.3"/><path d="M12 17.2h.01"/></svg></i></div><div class="t1">Help &amp; Support</div></div>
+    <div style="flex:1"></div>
+    <div class="row" style="padding-left:22px;" onclick="signOut()"><div class="ic bg-red"><i class="ico" style="width:1em;height:1em;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v5M15 2v5M7 8h10v4a5 5 0 0 1-10 0V8Z"/><path d="M12 17v5"/></svg></i></div><div class="t1">Sign Out</div></div>
+  </div>
+
+</div>
+<script>
+(function () {
+  var hash = (location.hash || "").replace(/^#/, "");
+  var stored = "";
+  try { stored = localStorage.getItem("safetrack_screen") || ""; } catch (e) { stored = ""; }
+  var id = hash;
+  var screen = id ? document.getElementById("screen-" + id) : null;
+  if (!screen && stored) {
+    id = stored;
+    screen = document.getElementById("screen-" + id);
+  }
+  if (!screen) return;
+  var nodes = document.querySelectorAll(".screen");
+  for (var i = 0; i < nodes.length; i++) nodes[i].classList.remove("active");
+  screen.classList.add("active");
+})();
+</script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
