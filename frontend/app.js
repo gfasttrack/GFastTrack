@@ -301,12 +301,20 @@ async function createAccount() {
   const address = document.getElementById("reg-address").value.trim();
   const country = document.getElementById("reg-country").value;
   const devices = registerDevices().filter(function (row) { return row.name || row.device_id; });
-  if (!first || !surname || !username || !password || !birth || !address || !country) {
-    setRegisterNote("Enter your name, surname, username, and password, then select your date of birth and country.");
+  if (!first || !surname || !username || !password || !address) {
+    setRegisterNote("Enter your first name, surname, username, password, and address.");
     return;
   }
-  if (!devices.length) {
-    setRegisterNote("Add at least one device name and Device ID.");
+  if (!birth) {
+    setRegisterNote("Tap Date of birth and choose a date. It is still empty.");
+    return;
+  }
+  if (!country) {
+    setRegisterNote("Tap Country and choose your country.");
+    return;
+  }
+  if (!devices.length || devices.some(function (row) { return !row.name || row.device_id.length < 4; })) {
+    setRegisterNote("Each device needs a name and a Device ID of at least 4 characters.");
     return;
   }
   setRegisterNote("Creating your account…");
