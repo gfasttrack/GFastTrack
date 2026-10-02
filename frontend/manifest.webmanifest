@@ -1,6 +1,6 @@
 {
-  "name": "SafeTrack",
-  "short_name": "SafeTrack",
+  "name": "GFastTrack",
+  "short_name": "GFastTrack",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

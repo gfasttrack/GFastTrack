@@ -1,4 +1,4 @@
-/* SafeTrack API client. The screens and styles stay as designed. */
+/* GFastTrack web app. Tracker data comes from the server, not from the tracker itself. */
 
 const PIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12.5A7 7 0 0 0 5 9.5C5 14.42 12 22 12 22z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
 const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7.5"/></svg>';
@@ -7,23 +7,23 @@ const ALERT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 const ZONE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 4.9L3 17.5V21h3.5l6.3-6.3a4 4 0 0 0 4.9-5.4l-2.7 2.7-2.1-2.1 2.8-2.6Z"/></svg>';
 
 let session = {
-  name: "John Doe",
-  firstName: "John",
-  surname: "Doe",
-  username: "johndoe",
-  birthDate: "1991-03-12",
-  homeAddress: "123 Main Street, Accra",
-  country: "Ghana",
-  deviceName: "John Doe",
-  deviceId: "12345678",
-  email: "john.doe@example.com",
-  phone: "+233 24 000 0000",
+  name: "",
+  firstName: "",
+  surname: "",
+  username: "",
+  birthDate: "",
+  homeAddress: "",
+  country: "",
+  deviceName: "",
+  deviceId: "",
+  email: "",
+  phone: "",
   avatarUrl: "",
   lat: null,
   lng: null,
   address: "",
-  speed: 5,
-  updatedLabel: "",
+  speed: null,
+  updatedLabel: "No update yet",
   live: false,
   trail: null,
   arrived: false,
@@ -52,7 +52,7 @@ async function api(path, options) {
       body: opts.body
     });
   } catch (e) {
-    const err = new Error("Can't reach the SafeTrack server. Start Flask, or set the Render URL in config.js.");
+    const err = new Error("Can't reach the GFastTrack server.");
     err.network = true;
     throw err;
   }
@@ -122,28 +122,39 @@ function paintIdentity() {
   if (devid) devid.value = session.deviceId;
 }
 
+function placeText() {
+  if (session.live && session.address) return session.address;
+  if (session.live && session.lat != null && session.lng != null) {
+    return Number(session.lat).toFixed(5) + ", " + Number(session.lng).toFixed(5);
+  }
+  return "Waiting for the tracker";
+}
+
 function paintLocation() {
   const addr = document.getElementById("home-address");
-  if (addr && session.address) addr.textContent = session.address;
+  if (addr) addr.textContent = placeText();
   const upd = document.getElementById("home-updated");
-  if (upd && session.updatedLabel) upd.textContent = session.updatedLabel;
-  const sos = document.getElementById("sos-loc-text");
-  if (sos && session.address) {
-    sos.textContent = session.address + " · " + (session.updatedLabel || "just now");
-  }
-  document.querySelectorAll(".dyn-motion").forEach(function (motion) {
-    if (session.speed == null) return;
-    if (session.arrived) {
-      motion.classList.remove("moving");
-      motion.textContent = "● Arrived";
-      return;
-    }
-    const moving = Number(session.speed) > 0.5;
-    const verb = motion.closest("#screen-directions") ? "Walking" : "Moving";
-    motion.classList.toggle("moving", moving);
-    motion.textContent = moving ? "● " + verb + " • " + Math.round(Number(session.speed)) + " km/h" : "● Online";
-  });
+  if (upd) upd.textContent = session.updatedLabel || "No update yet";
+  paintSos();
   paintTrackCard();
+}
+
+function paintSos() {
+  const active = !!(session.device && session.device.sos_active);
+  const title = document.getElementById("sos-title");
+  const copy = document.getElementById("sos-copy");
+  if (title) title.textContent = active ? "SOS Alert" : "No SOS alert";
+  if (copy) {
+    copy.textContent = active
+      ? "This tracker reported sos as true."
+      : "SOS is clear. An alert appears here when the tracker reports sos as true.";
+  }
+  const sos = document.getElementById("sos-loc-text");
+  if (sos) {
+    sos.textContent = session.live
+      ? placeText() + " · " + (session.updatedLabel || "just now")
+      : "Waiting for a location from the server";
+  }
 }
 
 function paintDevice(device) {
@@ -152,14 +163,24 @@ function paintDevice(device) {
     const el = document.getElementById(id);
     if (el && text != null && text !== "") el.textContent = text;
   };
-    if (device.battery != null) set("dev-battery", Math.round(Number(device.battery)) + "%");
-  set("dev-signal", device.signal);
-  set("dev-gps", device.gps_status);
-  set("dev-updated", device.updated_label || session.updatedLabel);
-  if (device.temperature != null) set("dev-temp", Math.round(Number(device.temperature)) + "°C");
-  set("dev-sos", device.sos_active ? "Active" : "Inactive");
-  set("device-status", device.online ? "● Connected" : "● Offline");
-  set("home-status", device.online ? "● Online" : "● Offline");
+  const battery = device.battery == null ? "—" : Math.round(Number(device.battery)) + "%";
+  const temp = device.temperature == null ? "—" : Math.round(Number(device.temperature)) + "°C";
+  const speed = device.speed == null ? "—" : Math.round(Number(device.speed)) + " km/h";
+  const signal = device.signal || "—";
+  set("dev-battery", battery);
+  set("home-battery", battery);
+  set("dev-signal", signal);
+  set("home-signal", signal);
+  set("dev-gps", device.gps_status || "Waiting");
+  set("dev-updated", device.updated_label || session.updatedLabel || "No update yet");
+  set("dev-temp", temp);
+  set("home-temp", temp);
+  set("home-speed", speed);
+  set("dev-sos", device.sos_active ? "Active" : "Clear");
+  set("home-sos", device.sos_active ? "Active" : "Clear");
+  const status = device.online ? "● Online" : (device.has_live_fix ? "● Offline" : "● Waiting");
+  set("device-status", status);
+  set("home-status", status);
   const gps = document.getElementById("dev-gps");
   if (gps) gps.style.color = device.gps_status === "Active" ? "var(--green)" : "var(--muted)";
   session.device = device;
@@ -314,7 +335,26 @@ async function createAccount() {
     return;
   }
   if (!devices.length || devices.some(function (row) { return !row.name || row.device_id.length < 4; })) {
-    setRegisterNote("Each device needs a name and a Device ID of at least 4 characters.");
+    setRegisterNote("Each tracker needs a name and a Device ID of at least 4 characters.");
+    return;
+  }
+  const seenIds = {};
+  for (let i = 0; i < devices.length; i++) {
+    if (seenIds[devices[i].device_id]) {
+      setRegisterNote("Each tracker needs its own Device ID.");
+      return;
+    }
+    seenIds[devices[i].device_id] = true;
+  }
+  setRegisterNote("Checking Device ID…");
+  try {
+    for (let i = 0; i < devices.length; i++) {
+      await api("/api/devices/check/" + encodeURIComponent(devices[i].device_id));
+    }
+  } catch (err) {
+    if (err.status === 404) setRegisterNote("This tracker is not registered. Check the Device ID.");
+    else if (err.status === 401) setRegisterNote("Device authentication failed.");
+    else setRegisterNote(err.message);
     return;
   }
   setRegisterNote("Creating your account…");
@@ -416,13 +456,6 @@ async function uploadPhoto(input) {
 }
 
 function mockScan() {
-  const id = "ESP32-" + Math.floor(10000 + Math.random() * 89999);
-  const inputs = document.querySelectorAll(".reg-devid");
-  let target = inputs[0];
-  inputs.forEach(function (input) {
-    if (target && target.value.trim() && !input.value.trim()) target = input;
-  });
-  if (target) target.value = id;
   go("register");
 }
 
@@ -457,6 +490,7 @@ function go(id) {
     paintLocation();
     paintTrackCard();
   }
+  if (id === "sos") paintSos();
   if (id === "connect") {
     setTimeout(function () {
       if (document.getElementById("screen-connect").classList.contains("active")) go("home");
@@ -518,26 +552,28 @@ function openMyMap() {
 let geoMap, geoLayer;
 
 function currentPoint() {
-  if (session.lat != null && session.lng != null) return [Number(session.lat), Number(session.lng)];
-  return mockPath[0];
+  if (session.live && session.lat != null && session.lng != null) return [Number(session.lat), Number(session.lng)];
+  return null;
 }
 function homeLine() {
   if (session.live && session.trail && session.trail.length) return session.trail;
-  return [currentPoint()];
+  const point = currentPoint();
+  return point ? [point] : [];
 }
 function trackLine() {
   if (session.live && session.trail && session.trail.length) return session.trail;
-  return mockPath;
+  const point = currentPoint();
+  return point ? [point] : [];
 }
 
 function initHomeMap() {
   if (typeof L === "undefined") return;
-  if (homeMap) { homeMap.invalidateSize(); applyMapPoint(currentPoint()); return; }
   const point = currentPoint();
-  homeMap = L.map("map-home", { zoomControl: true, attributionControl: false }).setView(point, 15);
+  if (homeMap) { homeMap.invalidateSize(); if (point) applyMapPoint(point); return; }
+  homeMap = L.map("map-home", { zoomControl: true, attributionControl: false }).setView(point || [0, 0], point ? 15 : 2);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(homeMap);
   homeRoute = L.polyline(homeLine(), { color: "#2f7bf6", weight: 5 }).addTo(homeMap);
-  homeMarker = L.circleMarker(point, { radius: 8, color: "#fff", weight: 2, fillColor: "#2f7bf6", fillOpacity: 1 }).addTo(homeMap);
+  if (point) homeMarker = L.circleMarker(point, { radius: 8, color: "#fff", weight: 2, fillColor: "#2f7bf6", fillOpacity: 1 }).addTo(homeMap);
 }
 
 function trackedLine() {
@@ -551,23 +587,22 @@ function initTrackingMap() {
   const line = trackedLine();
   if (trackMap) {
     trackMap.invalidateSize();
-    if (trackMarker) trackMarker.setLatLng(point);
+    if (point && trackMarker) trackMarker.setLatLng(point);
     if (trackRoute) trackRoute.setLatLngs(line);
-    if (trackDest) trackDest.setLatLng(line[line.length - 1]);
-    trackMap.panTo(point);
+    if (point) trackMap.panTo(point);
     return;
   }
-  trackMap = L.map("map-tracking", { zoomControl: true, attributionControl: false }).setView(point, 15);
+  trackMap = L.map("map-tracking", { zoomControl: true, attributionControl: false }).setView(point || [0, 0], point ? 15 : 2);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(trackMap);
   trackRoute = L.polyline(line, { color: "#2f7bf6", weight: 5, opacity: 0.5 }).addTo(trackMap);
-  trackMarker = L.circleMarker(point, { radius: 8, color: "#fff", weight: 2, fillColor: "#2f7bf6", fillOpacity: 1 }).addTo(trackMap);
-  trackDest = L.circleMarker(line[line.length - 1], { radius: 7, color: "#fff", weight: 2, fillColor: "#e5484d", fillOpacity: 1 }).addTo(trackMap);
+  if (point) trackMarker = L.circleMarker(point, { radius: 8, color: "#fff", weight: 2, fillColor: "#2f7bf6", fillOpacity: 1 }).addTo(trackMap);
 }
 
 function routePath() {
   if (watchingOther() && watch.path && watch.path.length > 1) return watch.path;
   if (session.live && session.trail && session.trail.length > 1) return session.trail;
-  return mockPath;
+  const point = currentPoint();
+  return point ? [point] : [];
 }
 
 function metersBetween(a, b) {
@@ -615,7 +650,7 @@ function buildSteps(path) {
   if (watchingOther()) {
     steps.push({ title: "Arrive", detail: watch.address || "Their location" });
   } else {
-    steps.push({ title: "Arrive at Work Place", detail: "Ring Road, Accra" });
+    steps.push({ title: "Latest reported location", detail: session.address || "From the server" });
   }
   return steps;
 }
@@ -666,44 +701,21 @@ function renderDirections() {
 }
 
 function openDirections() {
-  if (watchingOther() && watch.path && watch.path.length > 1) {
-    watch.idx = 0;
-    watch.arrived = false;
-    watch.live = false;
-    watch.lat = watch.path[0][0];
-    watch.lng = watch.path[0][1];
-    routeIdx = 0;
-    session.arrived = false;
-    go("directions");
+  const path = routePath();
+  if (path.length < 2) {
+    const eta = document.getElementById("track-eta");
+    if (eta) eta.textContent = "Directions appear after the tracker reports more than one location.";
     return;
   }
-  if (!session.live) {
-    routeIdx = 0;
-    session.arrived = false;
-    session.speed = 5;
-    session.lat = mockPath[0][0];
-    session.lng = mockPath[0][1];
-    session.updatedLabel = "just now";
-  } else {
-    routeIdx = Math.max(0, routePath().length - 1);
-    session.arrived = false;
-  }
+  routeIdx = path.length - 1;
+  session.arrived = false;
   go("directions");
 }
 
 function followRoute() {
   const path = routePath();
-  if (path.length < 2) return;
-  if (session.live) {
-    routeIdx = path.length - 1;
-  } else if (routeIdx < path.length - 1) {
-    routeIdx += 1;
-    session.lat = path[routeIdx][0];
-    session.lng = path[routeIdx][1];
-    session.updatedLabel = "just now";
-  }
-  session.arrived = !session.live && routeIdx >= path.length - 1;
-  session.speed = session.arrived ? 0 : (session.speed || 5);
+  if (!session.live || path.length < 1 || session.lat == null) return;
+  routeIdx = Math.max(0, path.length - 1);
   applyMapPoint([Number(session.lat), Number(session.lng)]);
   paintLocation();
   renderDirections();
@@ -716,85 +728,89 @@ function initDirectionsMap() {
   const path = routePath();
   if (dirMap) {
     dirMap.invalidateSize();
-    if (dirMarker) dirMarker.setLatLng(point);
+    if (point && dirMarker) dirMarker.setLatLng(point);
     if (dirRoute) dirRoute.setLatLngs(path);
-    if (dirDest) dirDest.setLatLng(path[path.length - 1]);
-    dirMap.panTo(point);
+    if (point) dirMap.panTo(point);
     return;
   }
-  dirMap = L.map("map-directions", { zoomControl: true, attributionControl: false }).setView(point, 15);
+  dirMap = L.map("map-directions", { zoomControl: true, attributionControl: false }).setView(point || [0, 0], point ? 15 : 2);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(dirMap);
   dirRoute = L.polyline(path, { color: "#2f7bf6", weight: 5, opacity: 0.85 }).addTo(dirMap);
-  dirMarker = L.circleMarker(point, { radius: 8, color: "#fff", weight: 2, fillColor: "#2f7bf6", fillOpacity: 1 }).addTo(dirMap);
-  dirDest = L.circleMarker(path[path.length - 1], { radius: 7, color: "#fff", weight: 2, fillColor: "#e5484d", fillOpacity: 1 }).addTo(dirMap);
+  if (point) dirMarker = L.circleMarker(point, { radius: 8, color: "#fff", weight: 2, fillColor: "#2f7bf6", fillOpacity: 1 }).addTo(dirMap);
 }
 
 function initGeofenceMap() {
   if (typeof L === "undefined") return;
   if (geoMap) { geoMap.invalidateSize(); drawZones(); return; }
-  geoMap = L.map("map-geofence", { zoomControl: true, attributionControl: false }).setView(currentPoint(), 14);
+  const point = currentPoint();
+  geoMap = L.map("map-geofence", { zoomControl: true, attributionControl: false }).setView(point || [0, 0], point ? 14 : 2);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(geoMap);
   drawZones();
 }
 
+function ensureMarker(map, marker, point) {
+  if (!map || !point) return marker;
+  if (!marker) {
+    return L.circleMarker(point, { radius: 8, color: "#fff", weight: 2, fillColor: "#2f7bf6", fillOpacity: 1 }).addTo(map);
+  }
+  marker.setLatLng(point);
+  return marker;
+}
+
 function applyMapPoint(point) {
-  if (homeMap && homeMarker) {
-    homeMarker.setLatLng(point);
+  if (!point) return;
+  if (homeMap) {
+    homeMarker = ensureMarker(homeMap, homeMarker, point);
     if (homeRoute) homeRoute.setLatLngs(homeLine());
-    if (document.getElementById("screen-home").classList.contains("active")) homeMap.panTo(point);
+    if (document.getElementById("screen-home").classList.contains("active")) homeMap.setView(point, 15);
   }
-  if (!watchingOther() && trackMap && trackMarker) {
-    trackMarker.setLatLng(point);
+  if (!watchingOther() && trackMap) {
+    trackMarker = ensureMarker(trackMap, trackMarker, point);
     if (trackRoute) trackRoute.setLatLngs(trackLine());
-    if (trackDest) {
-      trackDest.setLatLng(session.live ? point : mockPath[mockPath.length - 1]);
-    }
-    if (document.getElementById("screen-tracking").classList.contains("active")) trackMap.panTo(point);
+    if (document.getElementById("screen-tracking").classList.contains("active")) trackMap.setView(point, 15);
   }
-  if (!watchingOther() && dirMap && dirMarker) {
-    dirMarker.setLatLng(point);
+  if (!watchingOther() && dirMap) {
+    dirMarker = ensureMarker(dirMap, dirMarker, point);
     if (dirRoute) dirRoute.setLatLngs(routePath());
-    if (document.getElementById("screen-directions").classList.contains("active")) dirMap.panTo(point);
+    if (document.getElementById("screen-directions").classList.contains("active")) dirMap.setView(point, 15);
   }
 }
 
 function applyLocation(data, allowSos) {
   if (!data) return;
-  if (data.lat != null && data.lng != null && (data.live || session.lat == null)) {
+  session.live = !!data.live;
+  if (data.live && data.lat != null && data.lng != null) {
     session.lat = Number(data.lat);
     session.lng = Number(data.lng);
+    session.address = data.address || "";
+  } else {
+    session.lat = null;
+    session.lng = null;
+    session.address = "";
+    session.trail = [];
   }
-  session.address = data.address || session.address;
-  if (data.speed != null) session.speed = data.speed;
-  session.updatedLabel = data.updated_label || session.updatedLabel;
-  session.live = !!data.live;
-  if (Array.isArray(data.trail) && data.trail.length) {
+  session.speed = data.speed == null ? null : data.speed;
+  session.updatedLabel = data.updated_label || "No update yet";
+  if (data.live && Array.isArray(data.trail) && data.trail.length) {
     session.trail = data.trail.map(function (p) { return [Number(p[0]), Number(p[1])]; });
   }
-  paintLocation();
   if (data.device) paintDevice(data.device);
-  if (session.lat != null) applyMapPoint([session.lat, session.lng]);
+  paintLocation();
+  if (session.live && session.lat != null) applyMapPoint([session.lat, session.lng]);
   if (allowSos !== false && data.device && data.device.sos_active && !session.sosDismissed) {
     const blocked = ["splash", "signin", "connect", "sos"].some(function (id) {
-      return document.getElementById("screen-" + id).classList.contains("active");
+      const screen = document.getElementById("screen-" + id);
+      return screen && screen.classList.contains("active");
     });
     if (!blocked) go("sos");
   }
-  if (data.device && !data.device.sos_active) session.sosDismissed = false;
+  if (data.device && !data.device.sos_active) {
+    session.sosDismissed = false;
+    if (document.getElementById("screen-sos").classList.contains("active")) paintSos();
+  }
 }
 
-function stepMock() {
-  if (!homeMap && !trackMap) return;
-  const point = mockPath[mockIdx];
-  mockIdx = (mockIdx + 1) % mockPath.length;
-  if (homeMarker) homeMarker.setLatLng(point);
-  if (homeMap && document.getElementById("screen-home").classList.contains("active")) homeMap.panTo(point);
-  if (watchingOther()) return;
-  if (trackMarker) trackMarker.setLatLng(point);
-  if (trackMap && document.getElementById("screen-tracking").classList.contains("active")) trackMap.panTo(point);
-  const upd = document.getElementById("home-updated");
-  if (upd) upd.textContent = "just now";
-}
+function stepMock() {}
 
 function accountPhoto() {
   if (session.avatarUrl) return session.avatarUrl;
@@ -804,31 +820,35 @@ function accountPhoto() {
 
 function paintTrackCard() {
   const watching = watchingOther();
-  const ownName = session.deviceName || session.name || "John Doe";
-  const name = watching ? (watch.name || "Family") : ownName;
+  const ownName = session.deviceName || session.name || "Tracker";
+  const name = watching ? (watch.name || "Tracker") : ownName;
   const photo = watching ? (watch.photo || "") : (samePersonAndDevice() ? accountPhoto() : "");
-  const speed = watching
-    ? Math.round(Number(watch.speed) || (watch.arrived ? 0 : 5))
-    : Math.round(Number(session.speed) || 5);
-  const arrived = watching ? !!watch.arrived : !!session.arrived;
+  const speedValue = watching ? watch.speed : session.speed;
+  const live = watching ? watch.live : session.live;
+  const speed = speedValue == null ? null : Math.round(Number(speedValue));
   const trackName = document.getElementById("track-name");
   const dirName = document.getElementById("dir-name");
   const trackMotion = document.getElementById("track-motion");
   const trackPlace = document.getElementById("track-place");
   const dirMotion = document.getElementById("dir-motion");
+  const eta = document.getElementById("track-eta");
   if (trackName) trackName.textContent = name;
   if (dirName) dirName.textContent = name;
   setFace(document.getElementById("track-photo"), document.getElementById("track-initial"), photo, name);
   setFace(document.getElementById("dir-photo"), document.getElementById("dir-initial"), photo, name);
+  const label = !live ? "● Offline" : (speed != null && speed > 0 ? "● Moving • " + speed + " km/h" : "● Online");
   if (trackMotion) {
-    trackMotion.classList.toggle("moving", !arrived);
-    trackMotion.textContent = arrived ? "● Arrived" : "● Moving • " + speed + " km/h";
+    trackMotion.classList.toggle("moving", !!live && speed > 0);
+    trackMotion.textContent = label;
   }
   if (dirMotion) {
-    dirMotion.classList.toggle("moving", !arrived);
-    dirMotion.textContent = arrived ? "● Arrived" : "● Walking • " + speed + " km/h";
+    dirMotion.classList.toggle("moving", !!live && speed > 0);
+    dirMotion.textContent = label;
   }
-  if (trackPlace) trackPlace.textContent = watching && watch.address ? watch.address : "Destination — Work Place";
+  if (trackPlace) {
+    trackPlace.textContent = watching && watch.address ? watch.address : placeText();
+  }
+  if (eta) eta.textContent = live ? ("Last update " + (session.updatedLabel || "just now")) : "Waiting for a report from the server";
 }
 
 function moveWatchedMarker(point, path) {
@@ -929,6 +949,14 @@ function renderFamily(list, members, onlyOthers) {
     ? members.filter(function (member) { return member.device_id && member.device_id !== session.deviceId; })
     : members;
   list.textContent = "";
+  if (!rows.length) {
+    const empty = document.createElement("div");
+    empty.className = "section-title";
+    empty.style.paddingLeft = "0";
+    empty.textContent = "No trackers on this account yet.";
+    list.appendChild(empty);
+    return;
+  }
   rows.forEach(function (member) {
     const row = document.createElement("div");
     row.className = "row";
@@ -1099,7 +1127,7 @@ async function submitFamilyMember() {
   }
   if (note) note.textContent = "Adding…";
   try {
-    await api("/api/family", {
+    await api("/api/trackers", {
       method: "POST",
       body: JSON.stringify({ name: name, device_id: deviceId })
     });
@@ -1112,7 +1140,7 @@ async function submitFamilyMember() {
 async function loadFamily() {
   if (!localStorage.getItem("safetrack_token")) return;
   try {
-    const data = await api("/api/family");
+    const data = await api("/api/trackers");
     renderFamily(document.getElementById("family-list"), data.members || [], false);
     renderFamily(document.getElementById("home-family"), data.members || [], false);
   } catch (err) { /* keep the designed list if the server is unreachable */ }
@@ -1138,6 +1166,14 @@ function renderHistory(groups) {
   const list = document.getElementById("history-list");
   if (!list) return;
   list.textContent = "";
+  if (!groups || !groups.length) {
+    const title = document.createElement("div");
+    title.className = "section-title";
+    title.style.paddingLeft = "0";
+    title.textContent = "No location reports yet";
+    list.appendChild(title);
+    return;
+  }
   const icons = { arrived: ["bg-blue", PIN], left: ["bg-muted", CLOCK], sos: ["bg-red", ALERT] };
   groups.forEach(function (group) {
     const title = document.createElement("div");
@@ -1180,8 +1216,7 @@ function drawZones() {
   if (geoLayer) geoMap.removeLayer(geoLayer);
   geoLayer = L.layerGroup().addTo(geoMap);
   const zones = (geoZones || []).filter(function (z) { return z.configured && z.lat != null && z.lng != null; });
-  const draw = zones.length ? zones : [{ lat: mockPath[0][0], lng: mockPath[0][1], radius_m: 200 }];
-  draw.forEach(function (z) {
+  zones.forEach(function (z) {
     L.circle([Number(z.lat), Number(z.lng)], {
       radius: z.radius_m || 200,
       color: "#2f7bf6",
@@ -1268,7 +1303,7 @@ async function loadDeviceList() {
   const list = document.getElementById("device-list");
   if (!list || !localStorage.getItem("safetrack_token")) return;
   try {
-    const data = await api("/api/family");
+    const data = await api("/api/trackers");
     const members = data.members || [];
     list.textContent = "";
     members.forEach(function (member) {

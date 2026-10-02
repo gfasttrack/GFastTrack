@@ -1,7 +1,8 @@
-"""SafeTrack API.
+"""GFastTrack API.
 
 Users live in Neon (Postgres). Profile photos live in Cloudinary.
-The ESP32 posts GPS fixes to /api/ingest/<device_id>.
+A GFastTrack tracker posts telemetry to /api/ingest/<device_id>.
+The web app reads that data from this server. It does not talk to the tracker.
 """
 
 import hashlib
@@ -193,7 +194,6 @@ def ensure_db():
             return
         for statement in SCHEMA:
             db_exec(statement)
-        seed_demo()
         _db_ready = True
 
 
@@ -378,6 +378,20 @@ def as_float(value):
         return None
 
 
+def as_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return True
+        if text in {"0", "false", "no", "off"}:
+            return False
+    return None
+
+
 def ago(dt):
     if not isinstance(dt, datetime):
         return "—"
@@ -449,54 +463,62 @@ def public_device(row):
     if not row:
         return None
     seen = row["last_seen"]
-    # Until the tracker sends its first fix, keep the designed Online state.
-    # After that, Online means a location arrived in the last 3 minutes.
-    if not row.get("has_live_fix"):
-        online = True
-    elif isinstance(seen, datetime):
+    online = False
+    if row.get("has_live_fix") and isinstance(seen, datetime):
         moment = seen if seen.tzinfo else seen.replace(tzinfo=TZ)
         online = (datetime.now(TZ) - moment.astimezone(TZ)).total_seconds() < 180
-    else:
-        online = False
+    signal = (row.get("signal") or "").strip()
     return {
         "device_id": row["device_id"],
         "name": row.get("name") or "",
         "battery": row["battery"],
-        "signal": row["signal"] or "Good",
-        "gps_status": row["gps_status"] or "Active",
+        "signal": signal or None,
+        "gps_status": "Active" if row.get("has_live_fix") else "Waiting",
         "temperature": row["temperature"],
-        "speed": row["speed"] or 0,
+        "speed": row["speed"],
         "sos_active": bool(row["sos_active"]),
         "online": online,
-        "updated_label": ago(seen),
+        "has_live_fix": bool(row.get("has_live_fix")),
+        "lat": row.get("lat") if row.get("has_live_fix") else None,
+        "lng": row.get("lng") if row.get("has_live_fix") else None,
+        "address": (row.get("address") or "") if row.get("has_live_fix") else "",
+        "updated_label": ago(seen) if seen else "No update yet",
     }
 
 
 def public_location(row):
-    if not row or row["lat"] is None or row["lng"] is None:
-        return None
-    trail = []
-    if row.get("has_live_fix"):
-        if local_mode():
-            points = [p for p in local_store().locations if p["device_id"] == row["device_id"]][-40:]
-        else:
-            points = db_exec(
-                "SELECT lat, lng FROM locations WHERE device_id = %s ORDER BY recorded_at DESC LIMIT 40",
-                (row["device_id"],),
-                fetch="all",
-            )
-            points = list(reversed(points))
-        trail = [[p["lat"], p["lng"]] for p in points]
+    device = public_device(row) if row else None
+    if not row or not row.get("has_live_fix") or row["lat"] is None or row["lng"] is None:
+        return {
+            "lat": None,
+            "lng": None,
+            "address": "",
+            "speed": None if not row else row["speed"],
+            "updated_label": "No update yet" if not row else (ago(row["last_seen"]) if row.get("last_seen") else "No update yet"),
+            "live": False,
+            "trail": [],
+            "path": [],
+            "device": device,
+        }
+    if local_mode():
+        points = [p for p in local_store().locations if p["device_id"] == row["device_id"]][-40:]
+    else:
+        points = db_exec(
+            "SELECT lat, lng FROM locations WHERE device_id = %s ORDER BY recorded_at DESC LIMIT 40",
+            (row["device_id"],),
+            fetch="all",
+        )
+        points = list(reversed(points))
     return {
         "lat": row["lat"],
         "lng": row["lng"],
-        "address": row["address"] or "123 Main Street, Accra, Ghana",
-        "speed": row["speed"] if row["speed"] is not None else 0,
+        "address": row["address"] or "",
+        "speed": row["speed"],
         "updated_label": ago(row["last_seen"]),
-        "live": bool(row.get("has_live_fix")),
-        "trail": trail,
+        "live": True,
+        "trail": [[p["lat"], p["lng"]] for p in points],
         "path": row.get("path") or [],
-        "device": public_device(row),
+        "device": device,
     }
 
 
@@ -603,7 +625,7 @@ def device_key_ok():
 
 def reverse_geocode(lat, lng):
     url = f"https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={lat}&lon={lng}"
-    req = urllib.request.Request(url, headers={"User-Agent": "SafeTrack/1.0 (family GPS tracker)"})
+    req = urllib.request.Request(url, headers={"User-Agent": "GFastTrack/1.0"})
     try:
         with urllib.request.urlopen(req, timeout=4) as resp:
             payload = json.loads(resp.read().decode())
@@ -691,21 +713,6 @@ class LocalStore:
         self.commands = []
         self.locations = []
         self._seq = 1
-        self.ensure_user(
-            "John",
-            "Doe",
-            "johndoe",
-            "password",
-            "12345678",
-            "John Doe",
-            email="john.doe@example.com",
-            phone="+233 24 000 0000",
-            birth_date="1991-03-12",
-            address="123 Main Street, Accra",
-            country="Ghana",
-            speed=5,
-            avatar="https://randomuser.me/api/portraits/men/32.jpg",
-        )
 
     def next_id(self):
         self._seq += 1
@@ -889,34 +896,21 @@ class LocalStore:
             })
 
     def disconnect(self, user, device_id):
-        owned = [
-            member for member in self.family
-            if member["owner_device_id"] == user["device_id"] and member.get("device_id")
-        ]
+        owned = [row for row in self.devices.values() if row.get("user_id") == user["id"]]
         if len(owned) <= 1:
             return None
-        if not any(member["device_id"] == device_id for member in owned):
+        if not any(row["device_id"] == device_id for row in owned):
             return False
         old_id = user["device_id"]
-        if device_id != old_id:
-            self._drop_device(old_id, device_id)
-            return user
-        nxt = next(member for member in owned if member["device_id"] != device_id)
-        new_id = nxt["device_id"]
-        self.users_by_device.pop(old_id, None)
-        user["device_id"] = new_id
-        user["device_name"] = nxt["name"]
-        self.users_by_device[new_id] = user
-        for member in self.family:
-            if member["owner_device_id"] == old_id:
-                member["owner_device_id"] = new_id
-        for zone in self.geofences:
-            if zone["device_id"] == old_id:
-                zone["device_id"] = new_id
-        for event in self.events:
-            if event["device_id"] == old_id:
-                event["device_id"] = new_id
-        self._drop_device(new_id, old_id)
+        target = self.devices.get(device_id)
+        if target:
+            target["user_id"] = None
+        if device_id == old_id:
+            nxt = next(row for row in owned if row["device_id"] != device_id)
+            self.users_by_device.pop(old_id, None)
+            user["device_id"] = nxt["device_id"]
+            user["device_name"] = nxt.get("name") or nxt["device_id"]
+            self.users_by_device[user["device_id"]] = user
         return user
 
     def _drop_device(self, owner_id, device_id):
@@ -967,41 +961,52 @@ def local_signin(username, password):
     return jsonify(bundle(user))
 
 
+def claimable_device(device_id):
+    row = device_row(device_id)
+    if not row:
+        return None, fail("This tracker is not registered. Check the Device ID.", 404)
+    if row.get("user_id"):
+        return None, fail("This Device ID is already linked to an account.", 409)
+    return row, None
+
+
 def local_register(profile, devices):
     store = local_store()
     if profile["username"].lower() in store.users_by_username:
         return fail("That username is already taken.", 409)
+    seen = set()
     for item in devices:
-        row = store.devices.get(item["device_id"])
-        claimed = item["device_id"] in store.users_by_device or (row and row.get("user_id"))
-        if claimed:
-            return fail(f"Device {item['device_id']} is already registered.", 409)
+        if item["device_id"] in seen:
+            return fail("Each tracker needs its own Device ID.", 400)
+        seen.add(item["device_id"])
+        row, error = claimable_device(item["device_id"])
+        if error:
+            return error
     first = devices[0]
-    user = store.ensure_user(
-        profile["first_name"],
-        profile["surname"],
-        profile["username"],
-        profile["password"],
-        first["device_id"],
-        first["name"],
-        birth_date=profile["birth_date"],
-        address=profile["address"],
-        country=profile["country"],
-        extras=False,
-        speed=5,
-    )
-    for index, item in enumerate(devices[1:], start=1):
-        added = store.add_owned_device(
-            user,
-            item["name"],
-            item["device_id"],
-            5.59 + index * 0.02,
-            -0.20 - index * 0.015,
-            profile["address"] or "Accra, Ghana",
-            3,
-        )
-        if not added:
-            return fail(f"Device {item['device_id']} is already registered.", 409)
+    full = f"{profile['first_name']} {profile['surname']}".strip()
+    user = {
+        "id": store.next_id(),
+        "name": full,
+        "first_name": profile["first_name"],
+        "surname": profile["surname"],
+        "username": profile["username"],
+        "password_hash": hash_password(profile["password"]),
+        "birth_date": profile["birth_date"],
+        "address": profile["address"],
+        "country": profile["country"],
+        "device_name": first["name"],
+        "email": "",
+        "phone": "",
+        "device_id": first["device_id"],
+        "avatar_url": "",
+    }
+    store.users_by_id[user["id"]] = user
+    store.users_by_device[first["device_id"]] = user
+    store.users_by_username[profile["username"].lower()] = user
+    for item in devices:
+        row = store.devices[item["device_id"]]
+        row["user_id"] = user["id"]
+        row["name"] = item["name"]
     return jsonify(bundle(user))
 
 
@@ -1049,6 +1054,78 @@ def health():
     return jsonify(ok=True, database=database, cloudinary=cloudinary_ready())
 
 
+@app.get("/api/devices/check/<device_id>")
+@require_db
+def check_device(device_id):
+    device_id = clean_device_id(device_id)
+    if not device_id:
+        return fail("This tracker is not registered.", 404)
+    _row, error = claimable_device(device_id)
+    if error:
+        return error
+    return jsonify(ok=True, device_id=device_id)
+
+
+def tracker_card(row):
+    view = public_device(row)
+    if not row.get("has_live_fix"):
+        status = "Waiting for first report"
+    elif view["online"]:
+        status = f"Online · {round(view['speed'])} km/h" if view["speed"] is not None else "Online"
+    else:
+        status = f"Offline · {view['updated_label']}"
+    if view["sos_active"]:
+        status = "SOS · " + status
+    return {
+        "name": view["name"] or row["device_id"],
+        "device_id": row["device_id"],
+        "avatar_url": "",
+        "status_text": status,
+        "online": view["online"],
+        "address": view["address"],
+        "lat": view["lat"],
+        "lng": view["lng"],
+        "battery": view["battery"],
+        "signal": view["signal"],
+        "temperature": view["temperature"],
+        "speed": view["speed"],
+        "sos_active": view["sos_active"],
+        "updated_label": view["updated_label"],
+    }
+
+
+@app.get("/api/trackers")
+@require_db
+@login_required
+def trackers():
+    return jsonify(members=[tracker_card(row) for row in account_devices(request.user)])
+
+
+@app.post("/api/trackers")
+@require_db
+@login_required
+def add_tracker():
+    data = body_json()
+    name = (data.get("name") or "").strip()
+    device_id = clean_device_id(data.get("device_id"))
+    if not name or len(name) > 80:
+        return fail("Enter a name for this tracker.", 400)
+    if not device_id:
+        return fail("This tracker is not registered.", 404)
+    row, error = claimable_device(device_id)
+    if error:
+        return error
+    if local_mode():
+        row["user_id"] = request.user["id"]
+        row["name"] = name
+        return jsonify(ok=True)
+    db_exec(
+        "UPDATE devices SET user_id = %s, name = %s WHERE device_id = %s AND user_id IS NULL",
+        (request.user["id"], name, device_id),
+    )
+    return jsonify(ok=True)
+
+
 @app.post("/api/auth/register")
 @require_db
 def register():
@@ -1068,6 +1145,14 @@ def register():
     )
     if taken:
         return fail("That username is already taken.", 409)
+    seen = set()
+    for item in devices:
+        if item["device_id"] in seen:
+            return fail("Each tracker needs its own Device ID.", 400)
+        seen.add(item["device_id"])
+        _row, error = claimable_device(item["device_id"])
+        if error:
+            return error
     full = f"{profile['first_name']} {profile['surname']}".strip()
     first = devices[0]
     try:
@@ -1089,41 +1174,10 @@ def register():
         )
     except UniqueViolation:
         return fail("That username or Device ID is already registered.", 409)
-    for index, item in enumerate(devices):
-        lat = 5.5600 if index == 0 else 5.59 + index * 0.02
-        lng = -0.2050 if index == 0 else -0.20 - index * 0.015
-        existing = db_exec(
-            "SELECT user_id FROM devices WHERE device_id = %s",
-            (item["device_id"],),
-            fetch="one",
-        )
-        if existing and existing["user_id"]:
-            return fail(f"Device {item['device_id']} is already registered.", 409)
-        if existing:
-            db_exec(
-                "UPDATE devices SET user_id = %s, name = %s WHERE device_id = %s",
-                (user["id"], item["name"], item["device_id"]),
-            )
-        else:
-            try:
-                db_exec(
-                    """
-                    INSERT INTO devices (
-                        device_id, user_id, name, battery, signal, gps_status, temperature, speed,
-                        sos_active, has_live_fix, lat, lng, address, last_seen
-                    )
-                    VALUES (%s, %s, %s, 85, 'Good', 'Active', 32, 0, FALSE, FALSE, %s, %s, %s, NOW())
-                    """,
-                    (item["device_id"], user["id"], item["name"], lat, lng, profile["address"]),
-                )
-            except UniqueViolation:
-                return fail(f"Device {item['device_id']} is already registered.", 409)
+    for item in devices:
         db_exec(
-            """
-            INSERT INTO family_members (owner_device_id, name, device_id, status_text, online)
-            VALUES (%s, %s, %s, 'Online', TRUE)
-            """,
-            (first["device_id"], item["name"], item["device_id"]),
+            "UPDATE devices SET user_id = %s, name = %s WHERE device_id = %s AND user_id IS NULL",
+            (user["id"], item["name"], item["device_id"]),
         )
     return jsonify(bundle(user))
 
@@ -1294,17 +1348,19 @@ def location(device_id):
 
 def account_devices(user):
     if local_mode():
-        return [
-            member for member in local_store().family
-            if member["owner_device_id"] == user["device_id"] and member.get("device_id")
+        rows = [
+            row for row in local_store().devices.values()
+            if row.get("user_id") == user["id"] or row["device_id"] == user["device_id"]
         ]
+        rows.sort(key=lambda row: (row["device_id"] != user["device_id"], row["device_id"]))
+        return rows
     return db_exec(
         """
-        SELECT * FROM family_members
-        WHERE owner_device_id = %s AND device_id IS NOT NULL
-        ORDER BY id
+        SELECT * FROM devices
+        WHERE user_id = %s OR device_id = %s
+        ORDER BY CASE WHEN device_id = %s THEN 0 ELSE 1 END, device_id
         """,
-        (user["device_id"],),
+        (user["id"], user["device_id"], user["device_id"]),
         fetch="all",
     )
 
@@ -1324,7 +1380,7 @@ def device_on_account(user, device_id):
 def wearer_name(user, device_id):
     for row in account_devices(user):
         if row["device_id"] == device_id:
-            return row["name"]
+            return row.get("name") or user.get("device_name") or ""
     if device_id == user["device_id"]:
         return user.get("device_name") or user.get("name") or ""
     return ""
@@ -1405,32 +1461,14 @@ def disconnect_postgres(user, device_id):
         return fail("Keep at least one device on the account.", 400)
     old_id = user["device_id"]
     if device_id != old_id:
-        db_exec(
-            "DELETE FROM family_members WHERE owner_device_id = %s AND device_id = %s",
-            (old_id, device_id),
-        )
-        db_exec("DELETE FROM device_commands WHERE device_id = %s", (device_id,))
-        db_exec("DELETE FROM locations WHERE device_id = %s", (device_id,))
-        db_exec("DELETE FROM devices WHERE device_id = %s", (device_id,))
+        db_exec("UPDATE devices SET user_id = NULL WHERE device_id = %s", (device_id,))
         return jsonify(ok=True)
     new_id = nxt["device_id"]
     db_exec(
         "UPDATE users SET device_id = %s, device_name = %s WHERE id = %s",
-        (new_id, nxt["name"], user["id"]),
+        (new_id, nxt.get("name") or new_id, user["id"]),
     )
-    db_exec(
-        "UPDATE family_members SET owner_device_id = %s WHERE owner_device_id = %s",
-        (new_id, old_id),
-    )
-    db_exec(
-        "DELETE FROM family_members WHERE owner_device_id = %s AND device_id = %s",
-        (new_id, old_id),
-    )
-    db_exec("UPDATE geofences SET device_id = %s WHERE device_id = %s", (new_id, old_id))
-    db_exec("UPDATE events SET device_id = %s WHERE device_id = %s", (new_id, old_id))
-    db_exec("DELETE FROM device_commands WHERE device_id = %s", (old_id,))
-    db_exec("DELETE FROM locations WHERE device_id = %s", (old_id,))
-    db_exec("DELETE FROM devices WHERE device_id = %s", (old_id,))
+    db_exec("UPDATE devices SET user_id = NULL WHERE device_id = %s", (old_id,))
     fresh = db_exec("SELECT * FROM users WHERE id = %s", (user["id"],), fetch="one")
     return jsonify(bundle(fresh))
 
@@ -1620,42 +1658,52 @@ def add_geofence():
     return jsonify(id=row["id"])
 
 
+def history_groups(rows):
+    groups = []
+    index = {}
+    for row in rows:
+        moment = row["recorded_at"]
+        label = day_label(moment)
+        if label not in index:
+            index[label] = {"label": label, "items": []}
+            groups.append(index[label])
+        place = (row.get("address") or "").strip()
+        title = place or f"{row['lat']:.5f}, {row['lng']:.5f}"
+        detail = clock(moment)
+        if row.get("speed") is not None:
+            detail = f"{detail} · {round(row['speed'])} km/h"
+        index[label]["items"].append({
+            "kind": "arrived",
+            "title": title,
+            "detail": detail,
+            "lat": row["lat"],
+            "lng": row["lng"],
+        })
+    return groups
+
+
 @app.get("/api/history")
 @require_db
 @login_required
 def history():
+    device_id = request.user["device_id"]
     if local_mode():
-        rows = [e for e in local_store().events if e["device_id"] == request.user["device_id"]]
-        rows.sort(key=lambda item: item["created_at"], reverse=True)
-        rows = rows[:40]
+        rows = [point for point in local_store().locations if point["device_id"] == device_id]
+        rows.sort(key=lambda item: item["recorded_at"], reverse=True)
+        rows = rows[:80]
     else:
         rows = db_exec(
-        """
-        SELECT * FROM events
-        WHERE device_id = %s
-        ORDER BY created_at DESC
-        LIMIT 40
-        """,
-        (request.user["device_id"],),
-        fetch="all",
-    )
-    groups = []
-    index = {}
-    for row in rows:
-        label = day_label(row["created_at"])
-        if label not in index:
-            index[label] = {"label": label, "items": []}
-            groups.append(index[label])
-        place = row["place"] or ""
-        detail = clock(row["created_at"])
-        if place:
-            detail = f"{detail} · {place}"
-        index[label]["items"].append({
-            "kind": row["kind"],
-            "title": row["title"],
-            "detail": detail,
-        })
-    return jsonify(groups=groups)
+            """
+            SELECT lat, lng, speed, address, recorded_at
+            FROM locations
+            WHERE device_id = %s
+            ORDER BY recorded_at DESC
+            LIMIT 80
+            """,
+            (device_id,),
+            fetch="all",
+        )
+    return jsonify(groups=history_groups(rows))
 
 
 @app.post("/api/ingest/<device_id>")
@@ -1668,25 +1716,43 @@ def ingest(device_id):
         return fail("Invalid device key.", 401)
     row = device_row(device_id)
     if not row:
-        return fail("Register this Device ID in the app before it can send a location.", 404)
+        return fail("This tracker is not registered.", 404)
     data = body_json()
     lat = as_float(data.get("lat"))
     lng = as_float(data.get("lng"))
     if lat is None or lng is None or not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
-        return fail("Send lat and lng.", 400)
-    speed = as_float(data.get("speed"))
-    if speed is None:
-        speed = row["speed"] or 0
-    battery = data.get("battery", row["battery"])
-    try:
-        battery = max(0, min(100, int(battery)))
-    except (TypeError, ValueError):
-        battery = row["battery"] or 85
-    temperature = as_float(data.get("temperature"))
-    if temperature is None:
+        return fail("Missing or invalid lat or lng.", 400)
+    if "speed" in data and data.get("speed") not in (None, ""):
+        speed = as_float(data.get("speed"))
+        if speed is None:
+            return fail("Speed must be a number.", 400)
+    else:
+        speed = row["speed"]
+    if "battery" in data and data.get("battery") not in (None, ""):
+        try:
+            battery = int(data.get("battery"))
+        except (TypeError, ValueError):
+            return fail("Battery must be a number from 0 to 100.", 400)
+        if battery < 0 or battery > 100:
+            return fail("Battery must be a number from 0 to 100.", 400)
+    else:
+        battery = row["battery"]
+    if "temperature" in data and data.get("temperature") not in (None, ""):
+        temperature = as_float(data.get("temperature"))
+        if temperature is None:
+            return fail("Temperature must be a number.", 400)
+    else:
         temperature = row["temperature"]
-    signal = (data.get("signal") or row["signal"] or "Good").strip()[:40]
-    sos = bool(data.get("sos"))
+    if "signal" in data and data.get("signal") not in (None, ""):
+        signal = str(data.get("signal")).strip()[:40]
+    else:
+        signal = row["signal"] or ""
+    if "sos" in data and data.get("sos") is not None:
+        sos = as_bool(data.get("sos"))
+        if sos is None:
+            return fail("sos must be true or false.", 400)
+    else:
+        sos = bool(row["sos_active"])
     address = (data.get("address") or "").strip()
     if not address and moved(row["lat"], row["lng"], lat, lng):
         address = reverse_geocode(lat, lng) or row["address"]
@@ -1708,6 +1774,8 @@ def ingest(device_id):
             "device_id": device_id,
             "lat": lat,
             "lng": lng,
+            "speed": speed,
+            "address": address,
             "recorded_at": datetime.now(TZ),
         })
         if sos:
@@ -1761,9 +1829,11 @@ def ingest(device_id):
 def ingest_commands(device_id):
     device_id = clean_device_id(device_id)
     if not device_id:
-        return fail("Unknown device.", 404)
+        return fail("This tracker is not registered.", 404)
     if not device_key_ok():
         return fail("Invalid device key.", 401)
+    if not device_row(device_id):
+        return fail("This tracker is not registered.", 404)
     if local_mode():
         pending = [item for item in local_store().commands if item["device_id"] == device_id and not item["consumed"]]
         for item in pending:
