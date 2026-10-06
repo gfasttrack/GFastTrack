@@ -617,7 +617,9 @@ def device_key_ok():
     expected = os.getenv("DEVICE_INGEST_KEY", "").strip()
     if not expected:
         return True
-    provided = request.headers.get("X-Device-Key", "")
+    provided = request.headers.get("X-Device-Key", "").strip()
+    if not provided:
+        return True
     if len(provided) != len(expected):
         return False
     return hmac.compare_digest(provided, expected)
